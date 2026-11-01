@@ -34,9 +34,9 @@ jobs:
           p = Path('android_app/android/app/src/main/AndroidManifest.xml')
           s = p.read_text()
           s = s.replace('<manifest ', '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
-          s = s.replace('<application', '<uses-permission android:name="android.permission.WAKE_LOCK" />\\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\\n    <application', 1)
+          s = s.replace('<application', '<uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <application', 1)
           s = s.replace('android:name=".MainActivity"', 'android:name="com.ryanheise.audioservice.AudioServiceActivity"')
-          service = '''\\n        <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true" tools:ignore="Instantiatable"><intent-filter><action android:name="android.media.browse.MediaBrowserService" /></intent-filter></service>\\n        <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable"><intent-filter><action android:name="android.intent.action.MEDIA_BUTTON" /></intent-filter></receiver>\\n'''
+          service = '''\n        <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true" tools:ignore="Instantiatable"><intent-filter><action android:name="android.media.browse.MediaBrowserService" /></intent-filter></service>\n        <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable"><intent-filter><action android:name="android.intent.action.MEDIA_BUTTON" /></intent-filter></receiver>\n'''
           s = s.replace('</application>', service + '    </application>')
           p.write_text(s)
           PY
