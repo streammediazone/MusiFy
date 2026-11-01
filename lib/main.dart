@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
 
 void main() => runApp(const MusiFyApp());
 
@@ -35,6 +36,11 @@ class Track {
 class KDriveService {
   static const _driveId = '1800737';
   static const _shareToken = 'd5b56959-2447-46ed-aa12-942b2ce66042';
+
+  Uri _downloadUri(String fileId) => Uri.https(
+    'kdrive.infomaniak.com',
+    '/2/app/$_driveId/share/$_shareToken/files/$fileId/download',
+  );
 
   Uri _shareRootUri() => Uri.https(
     'kdrive.infomaniak.com',
@@ -192,9 +198,58 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> {
   final _service = KDriveService();
   late Future<LibraryResult> _future;
+  late final AudioPlayer _player;
+  int? _currentIndex;
+  bool _loadingTrack = false;
+  List<Track>? _cachedTracks;
+
   @override
-  void initState() { super.initState(); _future = _service.loadAudioTracks(); }
+  void initState() {
+    super.initState();
+    _future = _service.loadAudioTracks();
+    _player = AudioPlayer();
+    _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed && _currentIndex != null) {
+        _playTrack(_currentIndex! + 1, autoAdvance: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
   void _reload() => setState(() => _future = _service.loadAudioTracks());
+
+  Future<void> _playTrack(int index, {bool autoAdvance = false}) async {
+    final snapshot = await _future;
+    if (index < 0 || index >= snapshot.tracks.length) {
+      if (autoAdvance && mounted) setState(() => _currentIndex = null);
+      return;
+    }
+    final track = snapshot.tracks[index];
+    setState(() { _currentIndex = index; _loadingTrack = true; });
+    try {
+      await _player.setUrl(_service._downloadUri(track.id).toString());
+      await _player.play();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Skladbu sa nepodarilo prehrať: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingTrack = false);
+    }
+  }
+
+  Future<void> _togglePlayback() async {
+    if (_player.playing) {
+      await _player.pause();
+    } else if (_currentIndex != null) {
+      await _player.play();
+    }
+  }
 
   String _size(int bytes) {
     if (bytes <= 0) return '';
@@ -228,6 +283,7 @@ class _LibraryPageState extends State<LibraryPage> {
         ));
         final result = snapshot.data!;
         final tracks = result.tracks;
+        _cachedTracks = tracks;
         if (tracks.isEmpty) return const Center(child: Text('V zdieľanom priečinku sa nenašli hudobné súbory.'));
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(padding: const EdgeInsets.fromLTRB(20,12,20,8), child: Text('${tracks.length} skladieb', style: const TextStyle(color: Colors.white70))),
@@ -246,12 +302,67 @@ class _LibraryPageState extends State<LibraryPage> {
                 leading: const CircleAvatar(backgroundColor: Color(0x268B5CF6), child: Icon(Icons.music_note_rounded, color: Color(0xFFB69BFF))),
                 title: Text(track.name, maxLines: 2, overflow: TextOverflow.ellipsis),
                 subtitle: details.isEmpty ? null : Text(details),
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+                trailing: _currentIndex == index
+                    ? const Icon(Icons.graphic_eq_rounded, color: Color(0xFFB69BFF))
+                    : const Icon(Icons.play_arrow_rounded, color: Colors.white54),
+                onTap: () => _playTrack(index),
               );
             },
           )),
         ]);
       },
     ),
+    bottomNavigationBar: _currentIndex == null ? null : _miniPlayer(),
   );
+
+  Widget _miniPlayer() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1B1C22),
+          border: Border(top: BorderSide(color: Color(0xFF34343D))),
+        ),
+        child: Row(children: [
+          const Icon(Icons.music_note_rounded, color: Color(0xFFB69BFF)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(
+            _currentIndex == null ? '' : _trackTitle(_currentIndex!),
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+          )),
+          IconButton(
+            tooltip: 'Predchádzajúca skladba',
+            onPressed: _currentIndex == null ? null : () => _playTrack(_currentIndex! - 1),
+            icon: const Icon(Icons.skip_previous_rounded),
+          ),
+          StreamBuilder<PlayerState>(
+            stream: _player.playerStateStream,
+            builder: (context, snapshot) {
+              final playing = snapshot.data?.playing ?? false;
+              return IconButton(
+                tooltip: playing ? 'Pozastaviť' : 'Prehrať',
+                onPressed: _loadingTrack ? null : _togglePlayback,
+                icon: _loadingTrack
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 30),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Nasledujúca skladba',
+            onPressed: _currentIndex == null ? null : () => _playTrack(_currentIndex! + 1),
+            icon: const Icon(Icons.skip_next_rounded),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  String _trackTitle(int index) {
+    // The loaded track list is retained by the same future used by the library view.
+    return _cachedTracks != null && index >= 0 && index < _cachedTracks!.length
+        ? _cachedTracks![index].name
+        : 'MusiFy';
+  }
 }
