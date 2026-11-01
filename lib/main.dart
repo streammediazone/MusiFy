@@ -275,16 +275,32 @@ class _LibraryPageState extends State<LibraryPage> {
     return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all)return;},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:const Color(0xFF29342C)),padding:const EdgeInsets.symmetric(horizontal:8));
   }
   Widget _artTile(int index,bool active)=>Container(width:49,height:49,decoration:BoxDecoration(borderRadius:BorderRadius.circular(12),gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[[_green,const Color(0xFF1D7043),const Color(0xFF285C70),const Color(0xFF6B3D8E)][index%4],_surface2])),child:Center(child:Icon(active?Icons.equalizer_rounded:Icons.music_note_rounded,color:active?_green:Colors.white70,size:25)));
-  Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(margin:const EdgeInsets.fromLTRB(10,0,10,7),padding:const EdgeInsets.fromLTRB(11,9,7,9),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(17),border:Border.all(color:const Color(0xFF344238))),child:Column(mainAxisSize:MainAxisSize.min,children:[
-    Row(children:[
-      _artTile(_currentIndex??0,true),const SizedBox(width:10),
-      Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_currentIndex==null?'':_title(_trackTitle(_currentIndex!)),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w700,fontSize:13)),Text(_currentIndex==null?'':'MusiFy  •  FLAC',style:const TextStyle(color:_muted,fontSize:11))])),
-      IconButton(tooltip:'Predchádzajúca skladba',onPressed:_currentIndex==null||_currentIndex!<=0?null:()=>_player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded)),
-      StreamBuilder<PlayerState>(stream:_player.playerStateStream,builder:(context,snapshot){final playing=snapshot.data?.playing??false;return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:34));}),
-      IconButton(tooltip:'Nasledujúca skladba',onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded)),
+  Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(
+    margin:const EdgeInsets.fromLTRB(10,0,10,7),
+    padding:const EdgeInsets.fromLTRB(12,13,8,12),
+    decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFF344238))),
+    child:Column(mainAxisSize:MainAxisSize.min,children:[
+      Row(children:[
+        _artTile(_currentIndex??0,true),const SizedBox(width:12),
+        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text(_currentIndex==null?'':_title(_trackTitle(_currentIndex!)),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w700,fontSize:14)),
+          const SizedBox(height:3),Text(_currentIndex==null?'':'MusiFy  •  FLAC',style:const TextStyle(color:_muted,fontSize:12)),
+        ])),
+        IconButton(tooltip:'Predchádzajúca skladba',constraints:const BoxConstraints(minWidth:46,minHeight:50),onPressed:_currentIndex==null||_currentIndex!<=0?null:()=>_player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded,size:28)),
+        StreamBuilder<PlayerState>(stream:_player.playerStateStream,builder:(context,snapshot){
+          final playing=snapshot.data?.playing??false;
+          return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',constraints:const BoxConstraints(minWidth:54,minHeight:54),onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?const SizedBox(width:23,height:23,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:40));
+        }),
+        IconButton(tooltip:'Nasledujúca skladba',constraints:const BoxConstraints(minWidth:46,minHeight:50),onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded,size:28)),
+      ]),
+      StreamBuilder<Duration>(stream:_player.positionStream,builder:(context,s){
+        final duration=_player.duration??Duration.zero;final pos=s.data??Duration.zero;
+        final value=duration.inMilliseconds==0?0.0:pos.inMilliseconds.clamp(0,duration.inMilliseconds).toDouble()/duration.inMilliseconds;
+        return ClipRRect(borderRadius:BorderRadius.circular(3),child:LinearProgressIndicator(value:value,minHeight:3,backgroundColor:const Color(0xFF3A453D),valueColor:const AlwaysStoppedAnimation(_green)));
+      }),
     ]),
-    StreamBuilder<Duration>(stream:_player.positionStream,builder:(context,s){final duration=_player.duration??Duration.zero;final pos=s.data??Duration.zero;final value=duration.inMilliseconds==0?0.0:pos.inMilliseconds.clamp(0,duration.inMilliseconds).toDouble()/duration.inMilliseconds;return ClipRRect(borderRadius:BorderRadius.circular(3),child:LinearProgressIndicator(value:value,minHeight:3,backgroundColor:const Color(0xFF3A453D),valueColor:const AlwaysStoppedAnimation(_green)));}),
-  ]))));
+  )));
+
   String _trackTitle(int index)=>_cachedTracks!=null&&index>=0&&index<_cachedTracks!.length?_cachedTracks![index].name:'MusiFy';
 
   void _openPlayer()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,trackName:_currentIndex==null?'MusiFy':_trackTitle(_currentIndex!),artist:_currentIndex==null?'':_artist(_trackTitle(_currentIndex!))));
