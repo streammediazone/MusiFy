@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -138,6 +139,7 @@ class _LibraryPageState extends State<LibraryPage> {
   late Future<LibraryResult> _future;
   late final AudioPlayer _player;
   final _search = TextEditingController();
+  final _searchFocus = FocusNode();
   int? _currentIndex;
   bool _loadingTrack = false;
   List<Track>? _cachedTracks;
@@ -151,7 +153,12 @@ class _LibraryPageState extends State<LibraryPage> {
     _player = AudioPlayer();
     _player.currentIndexStream.listen((index) { if (mounted && index != null) setState(() => _currentIndex = index); });
   }
-  @override void dispose() { _search.dispose(); _player.dispose(); super.dispose(); }
+  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _player.dispose(); super.dispose(); }
+  void _dismissSearchKeyboard() {
+    _searchFocus.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  }
   void _reload() => setState(() => _future = _service.loadAudioTracks());
 
   Future<void> _playTrack(int index) async {
@@ -225,7 +232,7 @@ class _LibraryPageState extends State<LibraryPage> {
             const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),SizedBox(height:3),Text('Hudobná knižnica',style:TextStyle(color:_muted,fontSize:13))])),
             Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(20)),child:Text('${tracks.length} skladieb',style:const TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
           ])),
-          Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFF27332A))),child:TextField(controller:_search,onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
+          Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFF27332A))),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
           const SizedBox(height:13),
           Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Row(children:[
             _filterChip('Všetky',true),
@@ -303,7 +310,10 @@ class _LibraryPageState extends State<LibraryPage> {
 
   String _trackTitle(int index)=>_cachedTracks!=null&&index>=0&&index<_cachedTracks!.length?_cachedTracks![index].name:'MusiFy';
 
-  void _openPlayer()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[]));
+  void _openPlayer() {
+    _dismissSearchKeyboard();
+    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[]));
+  }
   void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
     const ListTile(leading:Icon(Icons.palette_outlined,color:_green),title:Text('Vzhľad'),subtitle:Text('Tmavý motív • zelená akcentová farba')),
