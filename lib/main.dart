@@ -68,8 +68,7 @@ class KDriveService {
   }
 
   _Page _parsePage(dynamic value) {
-    // Infomaniak public-share API returns:
-    // { "result": "success", "data": [ ... ], "cursor": "...", "has_more": true }
+    // Inspect the actual response shape instead of assuming data is a List.
     if (value is String) {
       value = jsonDecode(value);
     }
@@ -102,10 +101,30 @@ class KDriveService {
     }
 
     if (raw is! List) {
+      String describe(dynamic node, [int depth = 0]) {
+        if (node is Map) {
+          final parts = <String>[];
+          for (final entry in node.entries.take(20)) {
+            final v = entry.value;
+            if (v is Map && depth < 2) {
+              parts.add(entry.key + ':Map{' + describe(v, depth + 1) + '}');
+            } else if (v is List) {
+              final first = v.isNotEmpty ? v.first : null;
+              final firstInfo = first is Map ? ', first item keys=[' + first.keys.join(', ') + ']' : '';
+              parts.add(entry.key + ':List(length=' + v.length.toString() + firstInfo + ')');
+            } else {
+              parts.add(entry.key + ':' + v.runtimeType.toString());
+            }
+          }
+          return parts.join('; ');
+        }
+        return node.runtimeType.toString();
+      }
+
       throw FormatException(
-        'V odpovedi kDrive sa nenašiel zoznam súborov. '
-        'Kľúče odpovede: ' + root.keys.join(', ') +
-        '; typ data: ' + (root['data']?.runtimeType.toString() ?? 'null') + '.',
+        'KDrive diagnostika: zoznam súborov sa nenašiel. '
+        'Root={' + describe(root) + '}. '
+        'Data={' + describe(root['data']) + '}.',
       );
     }
 
