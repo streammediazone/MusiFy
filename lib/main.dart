@@ -339,29 +339,82 @@ class _LibraryPageState extends State<LibraryPage> {
 }
 
 class _FullPlayer extends StatelessWidget {
-  const _FullPlayer({required this.player,required this.trackName,required this.artist});
-  final AudioPlayer player; final String trackName,artist;
+  const _FullPlayer({required this.player,required this.tracks});
+  final AudioPlayer player;
+  final List<Track> tracks;
   String _time(Duration d)=>'${d.inMinutes}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
-  @override Widget build(BuildContext context)=>Container(height:MediaQuery.of(context).size.height*.88,decoration:const BoxDecoration(color:_surface,borderRadius:BorderRadius.vertical(top:Radius.circular(28))),child:SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(22,8,22,20),child:Column(children:[
-    Row(children:[IconButton(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.keyboard_arrow_down_rounded,size:30)),const Expanded(child:Text('PRÁVE SA PREHRÁVA',textAlign:TextAlign.center,style:TextStyle(color:_muted,fontSize:11,fontWeight:FontWeight.w700,letterSpacing:1.5))),IconButton(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.more_horiz_rounded))]),
-    const Spacer(),
-    Container(width:MediaQuery.of(context).size.width*.72,height:MediaQuery.of(context).size.width*.72, constraints:const BoxConstraints(maxWidth:320,maxHeight:320),decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withOpacity(.12),blurRadius:40,spreadRadius:2)]),child:const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))),
-    const SizedBox(height:34),
-    Text(trackName,maxLines:2,textAlign:TextAlign.center,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800,letterSpacing:-.4)),
-    const SizedBox(height:7),Text(artist,style:const TextStyle(color:_muted,fontSize:14)),
-    const SizedBox(height:25),
-    StreamBuilder<Duration>(stream:player.positionStream,builder:(context,s){final duration=player.duration??Duration.zero;final pos=s.data??Duration.zero;final max=duration.inMilliseconds.toDouble().clamp(1,double.infinity).toDouble();return Column(children:[
-      Slider(value:pos.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:(v)=>player.seek(Duration(milliseconds:v.round()))),
-      Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(_time(pos),style:const TextStyle(color:_muted,fontSize:12)),Text(_time(duration),style:const TextStyle(color:_muted,fontSize:12))]),
-    ]);}),
-    const SizedBox(height:18),
-    Row(mainAxisAlignment:MainAxisAlignment.spaceEvenly,children:[
-      IconButton(iconSize:25,onPressed:()=>player.setShuffleModeEnabled(!player.shuffleModeEnabled),icon:StreamBuilder<bool>(stream:player.shuffleModeEnabledStream,builder:(c,s)=>Icon(Icons.shuffle_rounded,color:(s.data??false)?_green:_muted))),
-      IconButton(iconSize:38,onPressed:()=>player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded)),
-      StreamBuilder<PlayerState>(stream:player.playerStateStream,builder:(context,s){final playing=s.data?.playing??false;return Container(width:70,height:70,decoration:const BoxDecoration(color:_green,shape:BoxShape.circle),child:IconButton(iconSize:39,color:_bg,onPressed:()=>playing?player.pause():player.play(),icon:Icon(playing?Icons.pause_rounded:Icons.play_arrow_rounded)));}),
-      IconButton(iconSize:38,onPressed:()=>player.seekToNext(),icon:const Icon(Icons.skip_next_rounded)),
-      IconButton(iconSize:25,onPressed:()=>player.setLoopMode(player.loopMode==LoopMode.off?LoopMode.all:LoopMode.off),icon:StreamBuilder<LoopMode>(stream:player.loopModeStream,builder:(c,s)=>Icon(Icons.repeat_rounded,color:(s.data??LoopMode.off)==LoopMode.off?_muted:_green))),
-    ]),
-    const Spacer(),
-  ]))));
+  String _artist(String name) {
+    final dash=name.indexOf(' - ');
+    return dash>0?name.substring(0,dash):'Miestna knižnica';
+  }
+  String _title(String name) {
+    final dash=name.indexOf(' - ');
+    final value=dash>0?name.substring(dash+3):name;
+    return value.replaceAll(RegExp(r'\\.(flac|mp3|m4a|aac|ogg|opus|wav|wma)$',caseSensitive:false),'');
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height:MediaQuery.of(context).size.height*.88,
+      decoration:const BoxDecoration(color:_surface,borderRadius:BorderRadius.vertical(top:Radius.circular(28))),
+      child:SafeArea(
+        child:Padding(
+          padding:const EdgeInsets.fromLTRB(22,8,22,20),
+          child:StreamBuilder<int?>(
+            stream:player.currentIndexStream,
+            initialData:player.currentIndex,
+            builder:(context,indexSnapshot) {
+              final index=indexSnapshot.data;
+              final valid=index!=null&&index>=0&&index<tracks.length;
+              final name=valid?tracks[index].name:'MusiFy';
+              return Column(children:[
+                Row(children:[
+                  IconButton(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.keyboard_arrow_down_rounded,size:30)),
+                  const Expanded(child:Text('PRÁVE SA PREHRÁVA',textAlign:TextAlign.center,style:TextStyle(color:_muted,fontSize:11,fontWeight:FontWeight.w700,letterSpacing:1.5))),
+                  IconButton(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.more_horiz_rounded)),
+                ]),
+                const Spacer(),
+                Container(
+                  width:MediaQuery.of(context).size.width*.72,
+                  height:MediaQuery.of(context).size.width*.72,
+                  constraints:const BoxConstraints(maxWidth:320,maxHeight:320),
+                  decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withOpacity(.12),blurRadius:40,spreadRadius:2)]),
+                  child:const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
+                ),
+                const SizedBox(height:34),
+                Text(_title(name),key:ValueKey('title-$index'),maxLines:2,textAlign:TextAlign.center,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800,letterSpacing:-.4)),
+                const SizedBox(height:7),
+                Text(valid?_artist(name):'',key:ValueKey('artist-$index'),style:const TextStyle(color:_muted,fontSize:14)),
+                const SizedBox(height:25),
+                StreamBuilder<Duration>(stream:player.positionStream,builder:(context,s){
+                  final duration=player.duration??Duration.zero;
+                  final pos=s.data??Duration.zero;
+                  final max=duration.inMilliseconds.toDouble().clamp(1,double.infinity).toDouble();
+                  return Column(children:[
+                    Slider(value:pos.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:(v)=>player.seek(Duration(milliseconds:v.round()))),
+                    Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[
+                      Text(_time(pos),style:const TextStyle(color:_muted,fontSize:12)),
+                      Text(_time(duration),style:const TextStyle(color:_muted,fontSize:12)),
+                    ]),
+                  ]);
+                }),
+                const SizedBox(height:18),
+                Row(mainAxisAlignment:MainAxisAlignment.spaceEvenly,children:[
+                  IconButton(iconSize:25,onPressed:()=>player.setShuffleModeEnabled(!player.shuffleModeEnabled),icon:StreamBuilder<bool>(stream:player.shuffleModeEnabledStream,builder:(c,s)=>Icon(Icons.shuffle_rounded,color:(s.data??false)?_green:_muted))),
+                  IconButton(iconSize:38,onPressed:()=>player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded)),
+                  StreamBuilder<PlayerState>(stream:player.playerStateStream,builder:(context,s){
+                    final playing=s.data?.playing??false;
+                    return Container(width:70,height:70,decoration:const BoxDecoration(color:_green,shape:BoxShape.circle),child:IconButton(iconSize:39,color:_bg,onPressed:()=>playing?player.pause():player.play(),icon:Icon(playing?Icons.pause_rounded:Icons.play_arrow_rounded)));
+                  }),
+                  IconButton(iconSize:38,onPressed:()=>player.seekToNext(),icon:const Icon(Icons.skip_next_rounded)),
+                  IconButton(iconSize:25,onPressed:()=>player.setLoopMode(player.loopMode==LoopMode.off?LoopMode.all:LoopMode.off),icon:StreamBuilder<LoopMode>(stream:player.loopModeStream,builder:(c,s)=>Icon(Icons.repeat_rounded,color:(s.data??LoopMode.off)==LoopMode.off?_muted:_green))),
+                ]),
+                const Spacer(),
+              ]);
+            },
+          ),
+        ),
+      ),
+    );
+  }
 }
