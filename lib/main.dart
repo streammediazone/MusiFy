@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_service/audio_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -309,6 +310,53 @@ class _LibraryPageState extends State<LibraryPage> {
             tilePadding: EdgeInsets.zero,
             title: const Text('Diagnostika načítania'),
             children: [Container(width: double.infinity, padding: const EdgeInsets.all(10), color: const Color(0xFF1B1C22), child: SelectableText(result.diagnostics.join('\n'), style: const TextStyle(fontSize: 11, height: 1.5, color: Colors.white70)))],
+          )),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Diagnostika systémového prehrávania'),
+            children: [
+              StreamBuilder<MediaItem?>(
+                stream: AudioService.currentMediaItemStream,
+                builder: (context, mediaSnapshot) {
+                  return StreamBuilder<PlaybackState>(
+                    stream: AudioService.playbackStateStream,
+                    builder: (context, stateSnapshot) {
+                      final media = mediaSnapshot.data;
+                      final state = stateSnapshot.data;
+                      final lines = <String>[
+                        'MediaItem stream: ${mediaSnapshot.connectionState}',
+                        'Skladba v MediaSession: ${media?.title ?? 'ŽIADNA'}',
+                        'MediaItem ID: ${media?.id ?? '-'}',
+                        'PlaybackState stream: ${stateSnapshot.connectionState}',
+                        'Prehrávanie: ${state?.playing.toString() ?? 'bez dát'}',
+                        'ProcessingState: ${state?.processingState.toString() ?? 'bez dát'}',
+                        'Ovládacie prvky: ${state?.controls.map((c) => c.toString()).join(', ') ?? 'bez dát'}',
+                        'AudioPlayer playing: ${_player.playing}',
+                        'AudioPlayer index: ${_player.currentIndex?.toString() ?? '-'}',
+                      ];
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        color: const Color(0xFF1B1C22),
+                        child: SelectableText(lines.join('\\n'), style: const TextStyle(fontSize: 11, height: 1.5, color: Colors.white70)),
+                      );
+                    },
+                  );
+                },
+              ),
+              StreamBuilder<Object>(
+                stream: AudioService.asyncError,
+                builder: (context, snapshot) => Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                  color: const Color(0xFF1B1C22),
+                  child: SelectableText(
+                    'AudioService async error: ${snapshot.hasData ? snapshot.data : 'žiadna zachytená chyba'}',
+                    style: const TextStyle(fontSize: 11, color: Colors.white70),
+                  ),
+                ),
+              ),
+            ],
           )),
           Expanded(child: ListView.separated(
             itemCount: tracks.length,
