@@ -51,6 +51,25 @@ jobs:
         working-directory: android_app
         run: flutter pub get
 
+      - name: Patch Android 13+ media notification stop action
+        working-directory: android_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import glob
+          matches = glob.glob(str(Path.home() / '.pub-cache/hosted/pub.dev/just_audio_background-*/lib/just_audio_background.dart'))
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one just_audio_background source file, found: {matches}')
+          p = Path(matches[0])
+          s = p.read_text()
+          old = '      MediaControl.stop,\n'
+          if old not in s:
+              raise SystemExit('Expected stop control definition was not found; refusing an unsafe patch.')
+          s = s.replace(old, '', 1)
+          p.write_text(s)
+          print(f'Patched {p}: removed stop from media controls to avoid Android 13+ null-icon CustomAction.')
+          PY
+
       - name: Build release APK
         working-directory: android_app
         run: flutter build apk --release
