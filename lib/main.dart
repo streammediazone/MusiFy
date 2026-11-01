@@ -237,12 +237,32 @@ class _LibraryPageState extends State<LibraryPage> {
           Expanded(child:visible.isEmpty?const Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(padding:const EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
             final track=visible[i]; final originalIndex=tracks.indexOf(track); final active=_currentIndex==originalIndex;
             final details=[_artist(track.name),if(_size(track.size).isNotEmpty)_size(track.size)].join('  •  ');
-            return Padding(padding:const EdgeInsets.symmetric(vertical:3),child:Material(color:active?const Color(0xFF18251B):Colors.transparent,borderRadius:BorderRadius.circular(15),child:InkWell(borderRadius:BorderRadius.circular(15),onTap:()=>_playTrack(originalIndex),child:Padding(padding:const EdgeInsets.symmetric(horizontal:9,vertical:9),child:Row(children:[
-              _artTile(i,active),const SizedBox(width:12),
-              Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_title(track.name),maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(fontSize:14,fontWeight:active?FontWeight.w700:FontWeight.w500,color:active?_green:Colors.white)),const SizedBox(height:4),Text(details,maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:_muted,fontSize:11))])),
-              const SizedBox(width:6),
-              Icon(active?Icons.graphic_eq_rounded:Icons.more_horiz_rounded,color:active?_green:_muted,size:22),
-            ]))))));
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Material(
+                color: active ? const Color(0xFF18251B) : Colors.transparent,
+                borderRadius: BorderRadius.circular(15),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(15),
+                  onTap: () => _playTrack(originalIndex),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
+                    child: Row(children: [
+                      _artTile(i, active),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(_title(track.name), maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 14, fontWeight: active ? FontWeight.w700 : FontWeight.w500, color: active ? _green : Colors.white)),
+                        const SizedBox(height: 4),
+                        Text(details, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _muted, fontSize: 11)),
+                      ])),
+                      const SizedBox(width: 6),
+                      Icon(active ? Icons.graphic_eq_rounded : Icons.more_horiz_rounded, color: active ? _green : _muted, size: 22),
+                    ]),
+                  ),
+                ),
+              ),
+            );
           })),
         ]);
       },
@@ -272,7 +292,33 @@ class _LibraryPageState extends State<LibraryPage> {
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
     const ListTile(leading:Icon(Icons.palette_outlined,color:_green),title:Text('Vzhľad'),subtitle:Text('Tmavý motív • zelená akcentová farba')),
     const ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:Text('Hudobná knižnica'),subtitle:Text('Zdroj: verejný priečinok kDrive')),
-    ExpansionTile(leading:const Icon(Icons.monitor_heart_outlined,color:_green),title:const Text('Diagnostika prehrávania'),children:[StreamBuilder<MediaItem?>(stream:AudioService.currentMediaItemStream,builder:(context,m)=>StreamBuilder<PlaybackState>(stream:AudioService.playbackStateStream,builder:(context,s){final media=m.data;final state=s.data;return Padding(padding:const EdgeInsets.all(12),child:SelectableText('MediaItem: ${media?.title??'ŽIADNA'}\\nPrehrávanie: ${state?.playing??'bez dát'}\\nProcessingState: ${state?.processingState??'bez dát'}\\nOvládacie prvky: ${state?.controls.map((c)=>c.toString()).join(', ')??'-'}\\nAudioPlayer: ${_player.playing} / index ${_player.currentIndex}',style:const TextStyle(color:_muted,fontSize:11))));}))]),
+    ExpansionTile(
+      leading: const Icon(Icons.monitor_heart_outlined, color: _green),
+      title: const Text('Diagnostika prehrávania'),
+      children: [
+        StreamBuilder<MediaItem?>(
+          stream: AudioService.currentMediaItemStream,
+          builder: (context, mediaSnapshot) => StreamBuilder<PlaybackState>(
+            stream: AudioService.playbackStateStream,
+            builder: (context, stateSnapshot) {
+              final media = mediaSnapshot.data;
+              final state = stateSnapshot.data;
+              final lines = [
+                'MediaItem: ${media?.title ?? 'ŽIADNA'}',
+                'Prehrávanie: ${state?.playing ?? 'bez dát'}',
+                'ProcessingState: ${state?.processingState ?? 'bez dát'}',
+                'Ovládacie prvky: ${state?.controls.map((c) => c.toString()).join(', ') ?? '-'}',
+                'AudioPlayer: ${_player.playing} / index ${_player.currentIndex}',
+              ];
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText(lines.join('\\n'), style: const TextStyle(color: _muted, fontSize: 11)),
+              );
+            },
+          ),
+        ),
+      ],
+    ),
   ]))));
 }
 
