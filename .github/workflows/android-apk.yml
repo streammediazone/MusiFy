@@ -24,6 +24,9 @@ jobs:
       - name: Generate Android project
         run: flutter create --platforms=android --org=com.streamzone --project-name=musify android_app
 
+      - name: Add network permission
+        run: sed -i '/<application/i\\    <uses-permission android:name="android.permission.INTERNET" />' android_app/android/app/src/main/AndroidManifest.xml
+
       - name: Apply MusiFy application source
         run: |
           cp pubspec.yaml android_app/pubspec.yaml
