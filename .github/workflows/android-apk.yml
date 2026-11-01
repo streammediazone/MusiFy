@@ -1,0 +1,46 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        run: flutter create --platforms=android --org=com.streamzone --project-name=musify android_app
+
+      - name: Apply MusiFy application source
+        run: |
+          cp pubspec.yaml android_app/pubspec.yaml
+          rm -rf android_app/lib
+          cp -R lib android_app/lib
+
+      - name: Resolve dependencies
+        working-directory: android_app
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: android_app
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusiFy-Android-APK
+          path: android_app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
