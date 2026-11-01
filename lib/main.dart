@@ -291,7 +291,7 @@ class _LibraryPageState extends State<LibraryPage> {
           final playing=snapshot.data?.playing??false;
           return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',constraints:const BoxConstraints(minWidth:65,minHeight:65),onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?const SizedBox(width:28,height:28,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:48));
         }),
-        IconButton(tooltip:'Nasledujúca skladba',constraints:const BoxConstraints(minWidth:46,minHeight:50),onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded,size:34)),
+        IconButton(tooltip:'Nasledujúca skladba',constraints:const BoxConstraints(minWidth:56,minHeight:60),onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded,size:34)),
       ]),
       StreamBuilder<Duration>(stream:_player.positionStream,builder:(context,s){
         final duration=_player.duration??Duration.zero;final pos=s.data??Duration.zero;
