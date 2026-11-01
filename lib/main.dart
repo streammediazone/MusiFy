@@ -160,7 +160,7 @@ class KDriveService {
     final items = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     final explicitMore = root['has_more'] ?? root['hasMore'] ?? data['has_more'] ?? data['hasMore'] ?? pagination['has_more'] ?? pagination['hasMore'];
     final perPage = int.tryParse('${root['items_per_page'] ?? data['items_per_page'] ?? pagination['items_per_page'] ?? ''}');
-    final more = explicitMore == true || (explicitMore == null && perPage != null && itemsLength(raw) >= perPage);
+    final more = explicitMore == true || (explicitMore == null && perPage != null && (raw as List).length >= perPage);
     final cursorValue = root['cursor'] ?? root['next_cursor'] ?? root['nextCursor'] ??
         data['cursor'] ?? data['next_cursor'] ?? data['nextCursor'] ??
         pagination['cursor'] ?? pagination['next_cursor'] ?? pagination['nextCursor'];
