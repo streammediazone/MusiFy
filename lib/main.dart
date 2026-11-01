@@ -231,7 +231,7 @@ class _LibraryPageState extends State<LibraryPage> {
           Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: const Text('Diagnostika načítania'),
-            children: [Container(width: double.infinity, padding: const EdgeInsets.all(10), color: const Color(0xFF1B1C22), child: SelectableText(result.diagnostics.join('\\n'), style: const TextStyle(fontSize: 11, height: 1.5, color: Colors.white70)))],
+            children: [Container(width: double.infinity, padding: const EdgeInsets.all(10), color: const Color(0xFF1B1C22), child: SelectableText(result.diagnostics.join('\n'), style: const TextStyle(fontSize: 11, height: 1.5, color: Colors.white70)))],
           )),
           Expanded(child: ListView.separated(
             itemCount: tracks.length,
