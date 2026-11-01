@@ -303,7 +303,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   String _trackTitle(int index)=>_cachedTracks!=null&&index>=0&&index<_cachedTracks!.length?_cachedTracks![index].name:'MusiFy';
 
-  void _openPlayer()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,trackName:_currentIndex==null?'MusiFy':_trackTitle(_currentIndex!),artist:_currentIndex==null?'':_artist(_trackTitle(_currentIndex!))));
+  void _openPlayer()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[]));
   void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
     const ListTile(leading:Icon(Icons.palette_outlined,color:_green),title:Text('Vzhľad'),subtitle:Text('Tmavý motív • zelená akcentová farba')),
