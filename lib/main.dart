@@ -2,8 +2,17 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
-void main() => runApp(const MusiFyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.streamzone.musify.channel.audio',
+    androidNotificationChannelName: 'MusiFy – prehrávanie hudby',
+    androidNotificationOngoing: true,
+  );
+  runApp(const MusiFyApp());
+}
 
 class MusiFyApp extends StatelessWidget {
   const MusiFyApp({super.key});
@@ -202,16 +211,15 @@ class _LibraryPageState extends State<LibraryPage> {
   int? _currentIndex;
   bool _loadingTrack = false;
   List<Track>? _cachedTracks;
+  bool _playlistReady = false;
 
   @override
   void initState() {
     super.initState();
     _future = _service.loadAudioTracks();
     _player = AudioPlayer();
-    _player.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed && _currentIndex != null) {
-        _playTrack(_currentIndex! + 1, autoAdvance: true);
-      }
+    _player.currentIndexStream.listen((index) {
+      if (mounted && index != null) setState(() => _currentIndex = index);
     });
   }
 
@@ -223,16 +231,27 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _reload() => setState(() => _future = _service.loadAudioTracks());
 
-  Future<void> _playTrack(int index, {bool autoAdvance = false}) async {
+  Future<void> _playTrack(int index) async {
     final snapshot = await _future;
-    if (index < 0 || index >= snapshot.tracks.length) {
-      if (autoAdvance && mounted) setState(() => _currentIndex = null);
-      return;
-    }
-    final track = snapshot.tracks[index];
+    final tracks = snapshot.tracks;
+    if (index < 0 || index >= tracks.length) return;
     setState(() { _currentIndex = index; _loadingTrack = true; });
     try {
-      await _player.setUrl(_service._downloadUri(track.id).toString());
+      if (!_playlistReady) {
+        final sources = tracks.map((track) => AudioSource.uri(
+          _service._downloadUri(track.id),
+          tag: MediaItem(id: track.id, title: track.name, album: 'MusiFy'),
+        )).toList();
+        await _player.setAudioSource(
+          ConcatenatingAudioSource(children: sources),
+          initialIndex: index,
+          initialPosition: Duration.zero,
+          useLazyPreparation: true,
+        );
+        _playlistReady = true;
+      } else {
+        await _player.seek(Duration.zero, index: index);
+      }
       await _player.play();
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -333,7 +352,7 @@ class _LibraryPageState extends State<LibraryPage> {
           )),
           IconButton(
             tooltip: 'Predchádzajúca skladba',
-            onPressed: _currentIndex == null ? null : () => _playTrack(_currentIndex! - 1),
+            onPressed: _currentIndex == null || _currentIndex! <= 0 ? null : () => _player.seekToPrevious(),
             icon: const Icon(Icons.skip_previous_rounded),
           ),
           StreamBuilder<PlayerState>(
@@ -351,7 +370,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           IconButton(
             tooltip: 'Nasledujúca skladba',
-            onPressed: _currentIndex == null ? null : () => _playTrack(_currentIndex! + 1),
+            onPressed: _currentIndex == null || _cachedTracks == null || _currentIndex! >= _cachedTracks!.length - 1 ? null : () => _player.seekToNext(),
             icon: const Icon(Icons.skip_next_rounded),
           ),
         ]),
