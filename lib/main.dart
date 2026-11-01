@@ -246,7 +246,6 @@ class _LibraryPageState extends State<LibraryPage> {
           ConcatenatingAudioSource(children: sources),
           initialIndex: index,
           initialPosition: Duration.zero,
-          useLazyPreparation: true,
         );
         _playlistReady = true;
       } else {
