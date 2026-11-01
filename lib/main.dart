@@ -44,7 +44,7 @@ class KDriveService {
   Uri _folderFilesUri(String folderId, {String? cursor}) => Uri.https(
     'kdrive.infomaniak.com',
     '/2/app/$_driveId/share/$_shareToken/files/$folderId/files',
-    {'type[]': 'file', if (cursor != null) 'cursor': cursor},
+    {if (cursor != null) 'cursor': cursor},
   );
 
   Future<dynamic> _getJson(Uri uri) async {
