@@ -56,7 +56,7 @@ class KDriveService {
     return jsonDecode(utf8.decode(response.bodyBytes));
   }
 
-  Future<List<Track>> loadAudioTracks() async {
+  Future<LibraryResult> loadAudioTracks() async {
     // The public-share /files endpoint returns metadata for the shared root
     // directory. Its children must be requested from /files/{folderId}/files.
     final root = await _getJson(_shareRootUri());
@@ -72,6 +72,7 @@ class KDriveService {
     final tracks = <Track>[];
     final pendingFolders = <String>[rootId];
     final visitedFolders = <String>{};
+    final diagnostics = <String>['Koreň: ID=$rootId, názov=${rootData['name'] ?? '-'}'];
 
     while (pendingFolders.isNotEmpty) {
       final folderId = pendingFolders.removeAt(0);
@@ -82,6 +83,7 @@ class KDriveService {
       for (var page = 0; page < 100; page++) {
         final response = await _getJson(_folderFilesUri(folderId, cursor: cursor));
         final pageData = _parsePage(response);
+        diagnostics.add('Priečinok $folderId / strana ${page + 1}: položiek ${pageData.items.length}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null ? 'null' : 'prítomný'}, ${pageData.responseKeys}');
         for (final item in pageData.items) {
           final type = (item['type'] ?? '').toString();
           final id = (item['id'] ?? '').toString();
@@ -109,7 +111,8 @@ class KDriveService {
     }
 
     tracks.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return tracks;
+    diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${tracks.length}');
+    return LibraryResult(tracks, diagnostics);
   }
 
   _Page _parsePage(dynamic value) {
@@ -119,6 +122,7 @@ class KDriveService {
         value.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
         false,
         null,
+        'odpoveď je priamo zoznam',
       );
     }
     if (value is! Map) {
@@ -158,15 +162,22 @@ class KDriveService {
         data['cursor'] ?? data['next_cursor'] ?? data['nextCursor'] ??
         pagination['cursor'] ?? pagination['next_cursor'] ?? pagination['nextCursor'];
     final cursor = cursorValue?.toString();
-    return _Page(items, more, cursor);
+    return _Page(items, more, cursor, 'kľúče root=${root.keys.join(',')}; data=${data.keys.join(',')}; pagination=${pagination.keys.join(',')}');
   }
 }
 
 class _Page {
-  const _Page(this.items, this.hasMore, this.cursor);
+  const _Page(this.items, this.hasMore, this.cursor, this.responseKeys);
   final List<Map<String,dynamic>> items;
   final bool hasMore;
   final String? cursor;
+  final String responseKeys;
+}
+
+class LibraryResult {
+  const LibraryResult(this.tracks, this.diagnostics);
+  final List<Track> tracks;
+  final List<String> diagnostics;
 }
 
 class LibraryPage extends StatefulWidget {
@@ -177,7 +188,7 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   final _service = KDriveService();
-  late Future<List<Track>> _future;
+  late Future<LibraryResult> _future;
   @override
   void initState() { super.initState(); _future = _service.loadAudioTracks(); }
   void _reload() => setState(() => _future = _service.loadAudioTracks());
@@ -194,7 +205,7 @@ class _LibraryPageState extends State<LibraryPage> {
       title: const Text('MusiFy', style: TextStyle(fontWeight: FontWeight.w700)),
       actions: [IconButton(tooltip: 'Obnoviť knižnicu', onPressed: _reload, icon: const Icon(Icons.refresh_rounded))],
     ),
-    body: FutureBuilder<List<Track>>(
+    body: FutureBuilder<LibraryResult>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: Column(
@@ -212,10 +223,16 @@ class _LibraryPageState extends State<LibraryPage> {
             FilledButton.icon(onPressed: _reload, icon: const Icon(Icons.refresh), label: const Text('Skúsiť znova')),
           ]),
         ));
-        final tracks = snapshot.data ?? const <Track>[];
+        final result = snapshot.data!;
+        final tracks = result.tracks;
         if (tracks.isEmpty) return const Center(child: Text('V zdieľanom priečinku sa nenašli hudobné súbory.'));
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(padding: const EdgeInsets.fromLTRB(20,12,20,8), child: Text('${tracks.length} skladieb', style: const TextStyle(color: Colors.white70))),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Diagnostika načítania'),
+            children: [Container(width: double.infinity, padding: const EdgeInsets.all(10), color: const Color(0xFF1B1C22), child: SelectableText(result.diagnostics.join('\\n'), style: const TextStyle(fontSize: 11, height: 1.5, color: Colors.white70)))],
+          )),
           Expanded(child: ListView.separated(
             itemCount: tracks.length,
             separatorBuilder: (_,__) => const Divider(height: 1, indent: 72),
