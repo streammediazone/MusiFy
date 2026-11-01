@@ -126,12 +126,22 @@ class KDriveService {
     }
 
     final root = Map<String, dynamic>.from(value);
+    final data = root['data'] is Map
+        ? Map<String, dynamic>.from(root['data'] as Map)
+        : <String, dynamic>{};
+    final pagination = root['pagination'] is Map
+        ? Map<String, dynamic>.from(root['pagination'] as Map)
+        : (data['pagination'] is Map
+            ? Map<String, dynamic>.from(data['pagination'] as Map)
+            : <String, dynamic>{});
+
     dynamic raw = root['data'];
     if (raw is Map) {
-      final dataMap = Map<String, dynamic>.from(raw);
-      raw = dataMap['files'] ?? dataMap['items'] ?? dataMap['results'] ?? dataMap['data'];
+      raw = data['files'] ?? data['items'] ?? data['results'] ??
+          data['entries'] ?? data['children'] ?? data['data'];
     }
-    raw ??= root['files'] ?? root['items'] ?? root['results'];
+    raw ??= root['files'] ?? root['items'] ?? root['results'] ??
+        root['entries'] ?? root['children'];
 
     if (raw is! List) {
       throw FormatException(
@@ -141,8 +151,13 @@ class KDriveService {
     }
 
     final items = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-    final more = root['has_more'] == true || root['hasMore'] == true;
-    final cursor = (root['cursor'] ?? root['next_cursor'])?.toString();
+    final more = root['has_more'] == true || root['hasMore'] == true ||
+        data['has_more'] == true || data['hasMore'] == true ||
+        pagination['has_more'] == true || pagination['hasMore'] == true;
+    final cursorValue = root['cursor'] ?? root['next_cursor'] ?? root['nextCursor'] ??
+        data['cursor'] ?? data['next_cursor'] ?? data['nextCursor'] ??
+        pagination['cursor'] ?? pagination['next_cursor'] ?? pagination['nextCursor'];
+    final cursor = cursorValue?.toString();
     return _Page(items, more, cursor);
   }
 }
