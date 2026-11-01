@@ -272,7 +272,7 @@ class _LibraryPageState extends State<LibraryPage> {
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
     const ListTile(leading:Icon(Icons.palette_outlined,color:_green),title:Text('Vzhľad'),subtitle:Text('Tmavý motív • zelená akcentová farba')),
     const ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:Text('Hudobná knižnica'),subtitle:Text('Zdroj: verejný priečinok kDrive')),
-    ExpansionTile(leading:const Icon(Icons.monitor_heart_outlined,color:_green),title:const Text('Diagnostika prehrávania'),children:[StreamBuilder<MediaItem?>(stream:AudioService.currentMediaItemStream,builder:(context,m)=>StreamBuilder<PlaybackState>(stream:AudioService.playbackStateStream,builder:(context,s){final media=m.data;final state=s.data;return Padding(padding:const EdgeInsets.all(12),child(SelectableText('MediaItem: ${media?.title??'ŽIADNA'}\\nPrehrávanie: ${state?.playing??'bez dát'}\\nProcessingState: ${state?.processingState??'bez dát'}\\nOvládacie prvky: ${state?.controls.map((c)=>c.toString()).join(', ')??'-'}\\nAudioPlayer: ${_player.playing} / index ${_player.currentIndex}',style:const TextStyle(color:_muted,fontSize:11))));}))]),
+    ExpansionTile(leading:const Icon(Icons.monitor_heart_outlined,color:_green),title:const Text('Diagnostika prehrávania'),children:[StreamBuilder<MediaItem?>(stream:AudioService.currentMediaItemStream,builder:(context,m)=>StreamBuilder<PlaybackState>(stream:AudioService.playbackStateStream,builder:(context,s){final media=m.data;final state=s.data;return Padding(padding:const EdgeInsets.all(12),child:SelectableText('MediaItem: ${media?.title??'ŽIADNA'}\\nPrehrávanie: ${state?.playing??'bez dát'}\\nProcessingState: ${state?.processingState??'bez dát'}\\nOvládacie prvky: ${state?.controls.map((c)=>c.toString()).join(', ')??'-'}\\nAudioPlayer: ${_player.playing} / index ${_player.currentIndex}',style:const TextStyle(color:_muted,fontSize:11))));}))]),
   ]))));
 }
 
@@ -288,8 +288,8 @@ class _FullPlayer extends StatelessWidget {
     Text(trackName,maxLines:2,textAlign:TextAlign.center,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800,letterSpacing:-.4)),
     const SizedBox(height:7),Text(artist,style:const TextStyle(color:_muted,fontSize:14)),
     const SizedBox(height:25),
-    StreamBuilder<Duration>(stream:player.positionStream,builder:(context,s){final duration=player.duration??Duration.zero;final pos=s.data??Duration.zero;final max=duration.inMilliseconds.toDouble().clamp(1,double.infinity);return Column(children:[
-      Slider(value:pos.inMilliseconds.toDouble().clamp(0,max),max:max,onChanged:(v)=>player.seek(Duration(milliseconds:v.round()))),
+    StreamBuilder<Duration>(stream:player.positionStream,builder:(context,s){final duration=player.duration??Duration.zero;final pos=s.data??Duration.zero;final max=duration.inMilliseconds.toDouble().clamp(1,double.infinity).toDouble();return Column(children:[
+      Slider(value:pos.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:(v)=>player.seek(Duration(milliseconds:v.round()))),
       Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(_time(pos),style:const TextStyle(color:_muted,fontSize:12)),Text(_time(duration),style:const TextStyle(color:_muted,fontSize:12))]),
     ]);}),
     const SizedBox(height:18),
