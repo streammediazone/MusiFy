@@ -41,10 +41,10 @@ class KDriveService {
     '/2/app/$_driveId/share/$_shareToken/files',
   );
 
-  Uri _folderFilesUri(String folderId, {String? cursor}) => Uri.https(
+  Uri _folderFilesUri(String folderId, {String? cursor, int? page}) => Uri.https(
     'kdrive.infomaniak.com',
     '/2/app/$_driveId/share/$_shareToken/files/$folderId/files',
-    {if (cursor != null) 'cursor': cursor},
+    {if (cursor != null) 'cursor': cursor, if (page != null) 'page': '$page'},
   );
 
   Future<dynamic> _getJson(Uri uri) async {
@@ -80,8 +80,9 @@ class KDriveService {
 
       final cursors = <String>{};
       String? cursor;
+      var pageNumber = 1;
       for (var page = 0; page < 100; page++) {
-        final response = await _getJson(_folderFilesUri(folderId, cursor: cursor));
+        final response = await _getJson(_folderFilesUri(folderId, cursor: cursor, page: cursor == null ? pageNumber : null));
         final pageData = _parsePage(response);
         diagnostics.add('Priečinok $folderId / strana ${page + 1}: položiek ${pageData.items.length}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null ? 'null' : 'prítomný'}, ${pageData.responseKeys}');
         for (final item in pageData.items) {
@@ -103,10 +104,12 @@ class KDriveService {
 
         if (!pageData.hasMore) break;
         final next = pageData.cursor;
-        if (next == null || next.isEmpty || !cursors.add(next)) {
-          throw Exception('kDrive neposkytol platný kurzor ďalšej stránky.');
+        if (next != null && next.isNotEmpty) {
+          if (!cursors.add(next)) throw Exception('kDrive opakovane vrátil rovnaký kurzor.');
+          cursor = next;
+        } else {
+          pageNumber++;
         }
-        cursor = next;
       }
     }
 
@@ -155,14 +158,14 @@ class KDriveService {
     }
 
     final items = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-    final more = root['has_more'] == true || root['hasMore'] == true ||
-        data['has_more'] == true || data['hasMore'] == true ||
-        pagination['has_more'] == true || pagination['hasMore'] == true;
+    final explicitMore = root['has_more'] ?? root['hasMore'] ?? data['has_more'] ?? data['hasMore'] ?? pagination['has_more'] ?? pagination['hasMore'];
+    final perPage = int.tryParse('${root['items_per_page'] ?? data['items_per_page'] ?? pagination['items_per_page'] ?? ''}');
+    final more = explicitMore == true || (explicitMore == null && perPage != null && itemsLength(raw) >= perPage);
     final cursorValue = root['cursor'] ?? root['next_cursor'] ?? root['nextCursor'] ??
         data['cursor'] ?? data['next_cursor'] ?? data['nextCursor'] ??
         pagination['cursor'] ?? pagination['next_cursor'] ?? pagination['nextCursor'];
     final cursor = cursorValue?.toString();
-    return _Page(items, more, cursor, 'kľúče root=${root.keys.join(',')}; data=${data.keys.join(',')}; pagination=${pagination.keys.join(',')}');
+    return _Page(items, more, cursor, 'kľúče root=${root.keys.join(',')}; data=${data.keys.join(',')}; pagination=${pagination.keys.join(',')}; page=${root['page'] ?? data['page'] ?? '-'}; items_per_page=${perPage ?? '-'}');
   }
 }
 
