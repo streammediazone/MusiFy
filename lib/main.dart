@@ -36,42 +36,84 @@ class KDriveService {
   static const _driveId = '1800737';
   static const _shareToken = 'd5b56959-2447-46ed-aa12-942b2ce66042';
 
-  Uri _filesUri({String? cursor}) => Uri.https(
+  Uri _shareRootUri() => Uri.https(
     'kdrive.infomaniak.com',
     '/2/app/$_driveId/share/$_shareToken/files',
-    {'with': 'capabilities', if (cursor != null) 'cursor': cursor},
   );
 
-  Future<List<Track>> loadAudioTracks() async {
-    final tracks = <Track>[];
-    final cursors = <String>{};
-    String? cursor;
-    for (var page = 0; page < 100; page++) {
-      final response = await http.get(_filesUri(cursor: cursor), headers: const {'Accept': 'application/json'}).timeout(const Duration(seconds: 25));
-      if (response.statusCode != 200) throw Exception('kDrive odpovedal HTTP ${response.statusCode}.');
-      final root = jsonDecode(utf8.decode(response.bodyBytes));
-      final pageData = _parsePage(root);
-      for (final item in pageData.items) {
-        final track = Track.fromJson(item);
-        final n = track.name.toLowerCase();
-        final audio = track.mimeType.startsWith('audio/') ||
-          const ['.flac','.mp3','.m4a','.aac','.ogg','.opus','.wav','.wma'].any(n.endsWith);
-        if (audio && track.id.isNotEmpty) tracks.add(track);
-      }
-      if (!pageData.hasMore) break;
-      final next = pageData.cursor;
-      if (next == null || next.isEmpty || !cursors.add(next)) throw Exception('kDrive neposkytol platný kurzor ďalšej stránky.');
-      cursor = next;
+  Uri _folderFilesUri(String folderId, {String? cursor}) => Uri.https(
+    'kdrive.infomaniak.com',
+    '/2/app/$_driveId/share/$_shareToken/files/$folderId/files',
+    {'type[]': 'file', if (cursor != null) 'cursor': cursor},
+  );
+
+  Future<dynamic> _getJson(Uri uri) async {
+    final response = await http.get(uri, headers: const {'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 25));
+    if (response.statusCode != 200) {
+      throw Exception('kDrive odpovedal HTTP ${response.statusCode} pri načítaní obsahu.');
     }
-    tracks.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return jsonDecode(utf8.decode(response.bodyBytes));
+  }
+
+  Future<List<Track>> loadAudioTracks() async {
+    // The public-share /files endpoint returns metadata for the shared root
+    // directory. Its children must be requested from /files/{folderId}/files.
+    final root = await _getJson(_shareRootUri());
+    if (root is! Map || root['data'] is! Map) {
+      throw FormatException('kDrive neposkytol metadáta zdieľaného priečinka.');
+    }
+    final rootData = Map<String, dynamic>.from(root['data'] as Map);
+    final rootId = (rootData['id'] ?? '').toString();
+    if (rootId.isEmpty || rootData['type'] != 'dir') {
+      throw FormatException('Zdieľaný odkaz nevrátil priečinok. ID: $rootId, typ: ${rootData['type']}.');
+    }
+
+    final tracks = <Track>[];
+    final pendingFolders = <String>[rootId];
+    final visitedFolders = <String>{};
+
+    while (pendingFolders.isNotEmpty) {
+      final folderId = pendingFolders.removeAt(0);
+      if (!visitedFolders.add(folderId)) continue;
+
+      final cursors = <String>{};
+      String? cursor;
+      for (var page = 0; page < 100; page++) {
+        final response = await _getJson(_folderFilesUri(folderId, cursor: cursor));
+        final pageData = _parsePage(response);
+        for (final item in pageData.items) {
+          final type = (item['type'] ?? '').toString();
+          final id = (item['id'] ?? '').toString();
+          if (type == 'dir' && id.isNotEmpty) {
+            pendingFolders.add(id);
+            continue;
+          }
+          if (type != 'file') continue;
+
+          final track = Track.fromJson(item);
+          final name = track.name.toLowerCase();
+          final audio = track.mimeType.startsWith('audio/') ||
+              const ['.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma']
+                  .any(name.endsWith);
+          if (audio && track.id.isNotEmpty) tracks.add(track);
+        }
+
+        if (!pageData.hasMore) break;
+        final next = pageData.cursor;
+        if (next == null || next.isEmpty || !cursors.add(next)) {
+          throw Exception('kDrive neposkytol platný kurzor ďalšej stránky.');
+        }
+        cursor = next;
+      }
+    }
+
+    tracks.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return tracks;
   }
 
   _Page _parsePage(dynamic value) {
-    // Inspect the actual response shape instead of assuming data is a List.
-    if (value is String) {
-      value = jsonDecode(value);
-    }
+    if (value is String) value = jsonDecode(value);
     if (value is List) {
       return _Page(
         value.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
@@ -80,12 +122,11 @@ class KDriveService {
       );
     }
     if (value is! Map) {
-      throw FormatException('Neočakávaný formát odpovede kDrive: ' + value.runtimeType.toString());
+      throw FormatException('Neočakávaný formát zoznamu kDrive: ${value.runtimeType}.');
     }
 
     final root = Map<String, dynamic>.from(value);
     dynamic raw = root['data'];
-
     if (raw is Map) {
       final dataMap = Map<String, dynamic>.from(raw);
       raw = dataMap['files'] ?? dataMap['items'] ?? dataMap['results'] ?? dataMap['data'];
@@ -93,43 +134,14 @@ class KDriveService {
     raw ??= root['files'] ?? root['items'] ?? root['results'];
 
     if (raw is! List) {
-      final nested = root['response'] ?? root['payload'];
-      if (nested is Map) {
-        final nestedMap = Map<String, dynamic>.from(nested);
-        raw = nestedMap['data'] ?? nestedMap['files'] ?? nestedMap['items'] ?? nestedMap['results'];
-      }
-    }
-
-    if (raw is! List) {
-      String describe(dynamic node, [int depth = 0]) {
-        if (node is Map) {
-          final parts = <String>[];
-          for (final entry in node.entries.take(20)) {
-            final v = entry.value;
-            if (v is Map && depth < 2) {
-              parts.add(entry.key + ':Map{' + describe(v, depth + 1) + '}');
-            } else if (v is List) {
-              final first = v.isNotEmpty ? v.first : null;
-              final firstInfo = first is Map ? ', first item keys=[' + first.keys.join(', ') + ']' : '';
-              parts.add(entry.key + ':List(length=' + v.length.toString() + firstInfo + ')');
-            } else {
-              parts.add(entry.key + ':' + v.runtimeType.toString());
-            }
-          }
-          return parts.join('; ');
-        }
-        return node.runtimeType.toString();
-      }
-
       throw FormatException(
-        'KDrive diagnostika: zoznam súborov sa nenašiel. '
-        'Root={' + describe(root) + '}. '
-        'Data={' + describe(root['data']) + '}.',
+        'Zoznam položiek priečinka kDrive nemá očakávaný formát. '
+        'Root kľúče: ${root.keys.join(', ')}; data typ: ${root['data']?.runtimeType}.',
       );
     }
 
     final items = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-    final more = (root['has_more'] ?? false) == true;
+    final more = root['has_more'] == true || root['hasMore'] == true;
     final cursor = (root['cursor'] ?? root['next_cursor'])?.toString();
     return _Page(items, more, cursor);
   }
