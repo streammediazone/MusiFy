@@ -68,16 +68,50 @@ class KDriveService {
   }
 
   _Page _parsePage(dynamic value) {
-    if (value is List) return _Page(value.whereType<Map>().map((e)=>Map<String,dynamic>.from(e)).toList(), false, null);
-    if (value is! Map) throw const FormatException('Neočakávaný formát odpovede kDrive.');
-    final root = Map<String,dynamic>.from(value);
-    final data = root['data'] ?? root['files'] ?? root['items'];
-    final meta = data is Map ? Map<String,dynamic>.from(data) : root;
-    final raw = data is List ? data : (meta['files'] ?? meta['items'] ?? meta['results'] ?? meta['data']);
-    if (raw is! List) throw const FormatException('V odpovedi kDrive sa nenašiel zoznam súborov.');
-    final items = raw.whereType<Map>().map((e)=>Map<String,dynamic>.from(e)).toList();
-    final more = (meta['has_more'] ?? root['has_more'] ?? false) == true;
-    final cursor = (meta['cursor'] ?? meta['next_cursor'] ?? root['cursor'] ?? root['next_cursor'])?.toString();
+    // Infomaniak public-share API returns:
+    // { "result": "success", "data": [ ... ], "cursor": "...", "has_more": true }
+    if (value is String) {
+      value = jsonDecode(value);
+    }
+    if (value is List) {
+      return _Page(
+        value.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
+        false,
+        null,
+      );
+    }
+    if (value is! Map) {
+      throw FormatException('Neočakávaný formát odpovede kDrive: ' + value.runtimeType.toString());
+    }
+
+    final root = Map<String, dynamic>.from(value);
+    dynamic raw = root['data'];
+
+    if (raw is Map) {
+      final dataMap = Map<String, dynamic>.from(raw);
+      raw = dataMap['files'] ?? dataMap['items'] ?? dataMap['results'] ?? dataMap['data'];
+    }
+    raw ??= root['files'] ?? root['items'] ?? root['results'];
+
+    if (raw is! List) {
+      final nested = root['response'] ?? root['payload'];
+      if (nested is Map) {
+        final nestedMap = Map<String, dynamic>.from(nested);
+        raw = nestedMap['data'] ?? nestedMap['files'] ?? nestedMap['items'] ?? nestedMap['results'];
+      }
+    }
+
+    if (raw is! List) {
+      throw FormatException(
+        'V odpovedi kDrive sa nenašiel zoznam súborov. '
+        'Kľúče odpovede: ' + root.keys.join(', ') +
+        '; typ data: ' + (root['data']?.runtimeType.toString() ?? 'null') + '.',
+      );
+    }
+
+    final items = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    final more = (root['has_more'] ?? false) == true;
+    final cursor = (root['cursor'] ?? root['next_cursor'])?.toString();
     return _Page(items, more, cursor);
   }
 }
