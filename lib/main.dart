@@ -252,7 +252,12 @@ class _LibraryPageState extends State<LibraryPage> {
       } else {
         await _player.seek(Duration.zero, index: index);
       }
-      await _player.play();
+      // AudioPlayer.play() completes only when playback stops or the
+      // player is paused/completed. Do not keep the UI loading indicator
+      // active for the entire duration of the song.
+      final playbackFuture = _player.play();
+      if (mounted) setState(() => _loadingTrack = false);
+      await playbackFuture;
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Skladbu sa nepodarilo prehrať: $error')),
