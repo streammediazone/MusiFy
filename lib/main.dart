@@ -277,21 +277,21 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _artTile(int index,bool active)=>Container(width:49,height:49,decoration:BoxDecoration(borderRadius:BorderRadius.circular(12),gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[[_green,const Color(0xFF1D7043),const Color(0xFF285C70),const Color(0xFF6B3D8E)][index%4],_surface2])),child:Center(child:Icon(active?Icons.equalizer_rounded:Icons.music_note_rounded,color:active?_green:Colors.white70,size:25)));
   Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(
     margin:const EdgeInsets.fromLTRB(10,0,10,7),
-    padding:const EdgeInsets.fromLTRB(12,13,8,12),
+    padding:const EdgeInsets.fromLTRB(14,15,10,14),
     decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFF344238))),
     child:Column(mainAxisSize:MainAxisSize.min,children:[
-      Row(children:[
-        _artTile(_currentIndex??0,true),const SizedBox(width:12),
+      Row(crossAxisAlignment:CrossAxisAlignment.center,children:[
+        Container(width:59,height:59,decoration:BoxDecoration(borderRadius:BorderRadius.circular(13),gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[[_green,const Color(0xFF1D7043),const Color(0xFF285C70),const Color(0xFF6B3D8E)][(_currentIndex??0)%4],_surface2])),child:Center(child:Icon(Icons.equalizer_rounded,color:_green,size:30))),const SizedBox(width:12),
         Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text(_currentIndex==null?'':_title(_trackTitle(_currentIndex!)),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w700,fontSize:14)),
           const SizedBox(height:3),Text(_currentIndex==null?'':'MusiFy  •  FLAC',style:const TextStyle(color:_muted,fontSize:12)),
         ])),
-        IconButton(tooltip:'Predchádzajúca skladba',constraints:const BoxConstraints(minWidth:46,minHeight:50),onPressed:_currentIndex==null||_currentIndex!<=0?null:()=>_player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded,size:28)),
+        IconButton(tooltip:'Predchádzajúca skladba',constraints:const BoxConstraints(minWidth:56,minHeight:60),onPressed:_currentIndex==null||_currentIndex!<=0?null:()=>_player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded,size:34)),
         StreamBuilder<PlayerState>(stream:_player.playerStateStream,builder:(context,snapshot){
           final playing=snapshot.data?.playing??false;
-          return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',constraints:const BoxConstraints(minWidth:54,minHeight:54),onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?const SizedBox(width:23,height:23,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:40));
+          return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',constraints:const BoxConstraints(minWidth:65,minHeight:65),onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?const SizedBox(width:28,height:28,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:48));
         }),
-        IconButton(tooltip:'Nasledujúca skladba',constraints:const BoxConstraints(minWidth:46,minHeight:50),onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded,size:28)),
+        IconButton(tooltip:'Nasledujúca skladba',constraints:const BoxConstraints(minWidth:46,minHeight:50),onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded,size:34)),
       ]),
       StreamBuilder<Duration>(stream:_player.positionStream,builder:(context,s){
         final duration=_player.duration??Duration.zero;final pos=s.data??Duration.zero;
