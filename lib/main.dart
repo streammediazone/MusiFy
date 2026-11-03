@@ -215,6 +215,17 @@ class _LibraryPageState extends State<LibraryPage> {
   void _reload() => setState(() => _future = _service.loadAudioTracks());
 
 
+  // Prefetch covers as soon as the library is available. Keep only a few
+  // metadata requests active at once to avoid overwhelming kDrive or the network.
+  Future<void> _prefetchArtwork(List<Track> tracks) async {
+    const batchSize = 3;
+    for (var start = 0; start < tracks.length; start += batchSize) {
+      if (!mounted) return;
+      final end = (start + batchSize < tracks.length) ? start + batchSize : tracks.length;
+      await Future.wait(tracks.sublist(start, end).map(_loadArtwork));
+    }
+  }
+
   Future<void> _loadArtwork(Track track) async {
     if (!track.name.toLowerCase().endsWith('.flac') || _artworkRequested.contains(track.id)) return;
     _artworkRequested.add(track.id);
@@ -328,7 +339,7 @@ class _LibraryPageState extends State<LibraryPage> {
       builder:(context,snapshot) {
         if(snapshot.connectionState==ConnectionState.waiting) return const Center(child:Column(mainAxisSize:MainAxisSize.min,children:[CircularProgressIndicator(color:_green),SizedBox(height:16),Text('Načítavam hudobnú knižnicu z kDrive…',style:TextStyle(color:_muted))]));
         if(snapshot.hasError) return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
-        final tracks=snapshot.data!.tracks; _cachedTracks=tracks;
+        final tracks=snapshot.data!.tracks; _cachedTracks=tracks; _prefetchArtwork(tracks);
         final visible=_visible(tracks);
         return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Padding(padding:const EdgeInsets.fromLTRB(20,12,20,14),child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
