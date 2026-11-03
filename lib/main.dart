@@ -220,8 +220,9 @@ class _LibraryPageState extends State<LibraryPage> {
     try {
       final request = http.Request('GET', _service._downloadUri(track.id));
       request.headers['Accept'] = 'audio/flac, application/octet-stream, */*';
-      final response = await http.Client().send(request).timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200 && response.statusCode != 206) return;
+      final client = http.Client();
+      final response = await client.send(request).timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200 && response.statusCode != 206) { client.close(); return; }
       final bytes = <int>[];
       await for (final chunk in response.stream) {
         bytes.addAll(chunk);
@@ -235,6 +236,7 @@ class _LibraryPageState extends State<LibraryPage> {
           break;
         }
       }
+      client.close();
     } catch (_) {
       // Artwork is optional; playback must continue if metadata cannot be read.
     }
@@ -388,7 +390,7 @@ class _LibraryPageState extends State<LibraryPage> {
     decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFF344238))),
     child:Column(mainAxisSize:MainAxisSize.min,children:[
       Row(crossAxisAlignment:CrossAxisAlignment.center,children:[
-        Container(width:59,height:59,decoration:BoxDecoration(borderRadius:BorderRadius.circular(13),gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[[_green,const Color(0xFF1D7043),const Color(0xFF285C70),const Color(0xFF6B3D8E)][(_currentIndex??0)%4],_surface2])),child:Center(child:Icon(Icons.equalizer_rounded,color:_green,size:30))),const SizedBox(width:12),
+        _currentIndex!=null&&_cachedTracks!=null&&_currentIndex!<_cachedTracks!.length?_artworkOrFallback(_cachedTracks![_currentIndex!].id,_currentIndex!,size:59,iconSize:30):const SizedBox(width:59,height:59),const SizedBox(width:12),
         Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text(_currentIndex==null?'':_title(_trackTitle(_currentIndex!)),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w700,fontSize:14)),
           const SizedBox(height:3),Text(_currentIndex==null?'':'MusiFy  •  FLAC',style:const TextStyle(color:_muted,fontSize:12)),
@@ -449,9 +451,10 @@ class _LibraryPageState extends State<LibraryPage> {
 }
 
 class _FullPlayer extends StatelessWidget {
-  const _FullPlayer({required this.player,required this.tracks});
+  const _FullPlayer({required this.player,required this.tracks,required this.artwork});
   final AudioPlayer player;
   final List<Track> tracks;
+  final ValueListenable<Map<String, Uint8List>> artwork;
   String _time(Duration d)=>'${d.inMinutes}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   String _artist(String name) {
     final dash=name.indexOf(' - ');
