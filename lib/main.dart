@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_service/audio_service.dart';
@@ -106,6 +108,7 @@ class Track {
 class KDriveService {
   static const _driveId = '1800737';
   static const _shareToken = 'd5b56959-2447-46ed-aa12-942b2ce66042';
+  final http.Client _client = http.Client();
   Uri _downloadUri(String fileId) => Uri.https('kdrive.infomaniak.com', '/2/app/$_driveId/share/$_shareToken/files/$fileId/download');
   Uri _shareRootUri() => Uri.https('kdrive.infomaniak.com', '/2/app/$_driveId/share/$_shareToken/files');
   Uri _folderFilesUri(String folderId, {String? cursor, int? page}) => Uri.https(
@@ -113,7 +116,7 @@ class KDriveService {
     {if (cursor != null) 'cursor': cursor, if (page != null) 'page': '$page'},
   );
   Future<dynamic> _getJson(Uri uri) async {
-    final response = await http.get(uri, headers: const {'Accept': 'application/json'}).timeout(const Duration(seconds: 25));
+    final response = await _client.get(uri, headers: const {'Accept': 'application/json'}).timeout(const Duration(seconds: 25));
     if (response.statusCode != 200) throw Exception('kDrive odpovedal HTTP ${response.statusCode} pri načítaní obsahu.');
     return jsonDecode(utf8.decode(response.bodyBytes));
   }
@@ -124,28 +127,31 @@ class KDriveService {
     final rootId = (rootData['id'] ?? '').toString();
     if (rootId.isEmpty || rootData['type'] != 'dir') throw FormatException('Zdieľaný odkaz nevrátil priečinok. ID: $rootId, typ: ${rootData['type']}.');
     final tracks = <Track>[];
-    final pendingFolders = <String>[rootId];
+    var pendingFolders = <String>[rootId];
     final visitedFolders = <String>{};
     final diagnostics = <String>['Koreň: ID=$rootId, názov=${rootData['name'] ?? '-'}'];
-    while (pendingFolders.isNotEmpty) {
-      final folderId = pendingFolders.removeAt(0);
-      if (!visitedFolders.add(folderId)) continue;
+    // Fetch independent folders concurrently; pages within one folder remain
+    // sequential because the next cursor depends on the previous response.
+    Future<({List<Track> tracks, List<String> folders, List<String> logs})> readFolder(String folderId) async {
+      final folderTracks = <Track>[];
+      final childFolders = <String>[];
+      final logs = <String>[];
       final cursors = <String>{};
       String? cursor;
       var pageNumber = 1;
       for (var page = 0; page < 100; page++) {
         final response = await _getJson(_folderFilesUri(folderId, cursor: cursor, page: cursor == null ? pageNumber : null));
         final pageData = _parsePage(response);
-        diagnostics.add('Priečinok $folderId / strana ${page + 1}: položiek ${pageData.items.length}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null ? 'null' : 'prítomný'}, ${pageData.responseKeys}');
+        logs.add('Priečinok $folderId / strana ${page + 1}: položiek ${pageData.items.length}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null ? 'null' : 'prítomný'}, ${pageData.responseKeys}');
         for (final item in pageData.items) {
           final type = (item['type'] ?? '').toString();
           final id = (item['id'] ?? '').toString();
-          if (type == 'dir' && id.isNotEmpty) { pendingFolders.add(id); continue; }
+          if (type == 'dir' && id.isNotEmpty) { childFolders.add(id); continue; }
           if (type != 'file') continue;
           final track = Track.fromJson(item);
           final name = track.name.toLowerCase();
           final audio = track.mimeType.startsWith('audio/') || const ['.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma'].any(name.endsWith);
-          if (audio && track.id.isNotEmpty) tracks.add(track);
+          if (audio && track.id.isNotEmpty) folderTracks.add(track);
         }
         if (!pageData.hasMore) break;
         final next = pageData.cursor;
@@ -153,6 +159,18 @@ class KDriveService {
           if (!cursors.add(next)) throw Exception('kDrive opakovane vrátil rovnaký kurzor.');
           cursor = next;
         } else { pageNumber++; }
+      }
+      return (tracks: folderTracks, folders: childFolders, logs: logs);
+    }
+    while (pendingFolders.isNotEmpty) {
+      final batch = pendingFolders.take(3).toList();
+      pendingFolders = pendingFolders.skip(batch.length).toList();
+      final fresh = batch.where((id) => visitedFolders.add(id)).toList();
+      final results = await Future.wait(fresh.map(readFolder));
+      for (final result in results) {
+        tracks.addAll(result.tracks);
+        pendingFolders.addAll(result.folders);
+        diagnostics.addAll(result.logs);
       }
     }
     tracks.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -197,6 +215,9 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _playlistReady = false;
   final ValueNotifier<Map<String, Uint8List>> _artwork = ValueNotifier(<String, Uint8List>{});
   final Set<String> _artworkRequested = <String>{};
+  bool _artworkPrefetchStarted = false;
+  Directory? _artworkCacheDirectory;
+  final http.Client _artworkClient = http.Client();
   String _filter = 'Všetky';
   String _sort = 'Názov';
 
@@ -206,19 +227,20 @@ class _LibraryPageState extends State<LibraryPage> {
     _player = AudioPlayer();
     _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
-  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); _player.dispose(); super.dispose(); }
+  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
     _searchFocus.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
   }
-  void _reload() => setState(() => _future = _service.loadAudioTracks());
+  void _reload() { _artworkPrefetchStarted = false; _artworkRequested.clear(); setState(() => _future = _service.loadAudioTracks()); }
 
 
-  // Prefetch covers as soon as the library is available. Keep only a few
-  // metadata requests active at once to avoid overwhelming kDrive or the network.
+  // Warm the local artwork cache after the library has been listed.
   Future<void> _prefetchArtwork(List<Track> tracks) async {
-    const batchSize = 3;
+    if (_artworkPrefetchStarted) return;
+    _artworkPrefetchStarted = true;
+    const batchSize = 8;
     for (var start = 0; start < tracks.length; start += batchSize) {
       if (!mounted) return;
       final end = (start + batchSize < tracks.length) ? start + batchSize : tracks.length;
@@ -226,31 +248,59 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<Directory> _getArtworkCacheDirectory() async {
+    return _artworkCacheDirectory ??= Directory('${(await getApplicationSupportDirectory()).path}/artwork')
+      ..createSync(recursive: true);
+  }
+
+  String _artworkCacheName(String id) => base64Url.encode(utf8.encode(id)).replaceAll('=', '');
+
   Future<void> _loadArtwork(Track track) async {
     if (!track.name.toLowerCase().endsWith('.flac') || _artworkRequested.contains(track.id)) return;
     _artworkRequested.add(track.id);
     try {
-      final request = http.Request('GET', _service._downloadUri(track.id));
-      request.headers['Accept'] = 'audio/flac, application/octet-stream, */*';
-      final client = http.Client();
-      final response = await client.send(request).timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200 && response.statusCode != 206) { client.close(); return; }
-      final bytes = <int>[];
-      await for (final chunk in response.stream) {
-        bytes.addAll(chunk);
-        if (bytes.length > 64 * 1024 * 1024) break;
-        final parsed = _readFlacPicture(Uint8List.fromList(bytes));
-        if (parsed.complete) {
-          if (parsed.image != null && parsed.image!.isNotEmpty) {
-            final updated = Map<String, Uint8List>.from(_artwork.value)..[track.id] = parsed.image!;
-            _artwork.value = updated;
-          }
-          break;
+      final directory = await _getArtworkCacheDirectory();
+      final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+      if (await cached.exists()) {
+        final data = await cached.readAsBytes();
+        if (data.isNotEmpty) {
+          final updated = Map<String, Uint8List>.from(_artwork.value)..[track.id] = data;
+          _artwork.value = updated;
+          return;
         }
       }
-      client.close();
+
+      // Request progressively larger prefixes. If kDrive supports Range,
+      // only metadata bytes are transferred; otherwise parse its normal stream
+      // and cancel immediately after the PICTURE block.
+      for (final end in [262143, 1048575, 4194303]) {
+        final request = http.Request('GET', _service._downloadUri(track.id));
+        request.headers['Accept'] = 'audio/flac, application/octet-stream, */*';
+        request.headers['Range'] = 'bytes=0-$end';
+        final response = await _artworkClient.send(request).timeout(const Duration(seconds: 30));
+        if (response.statusCode != 200 && response.statusCode != 206) return;
+        final bytes = <int>[];
+        Uint8List? image;
+        await for (final chunk in response.stream) {
+          bytes.addAll(chunk);
+          if (bytes.length > 5 * 1024 * 1024) break;
+          final parsed = _readFlacPicture(Uint8List.fromList(bytes));
+          if (parsed.complete) {
+            image = parsed.image;
+            break;
+          }
+        }
+        if (image != null && image.isNotEmpty) {
+          await cached.writeAsBytes(image, flush: false);
+          final updated = Map<String, Uint8List>.from(_artwork.value)..[track.id] = image;
+          _artwork.value = updated;
+          return;
+        }
+        // A 200 means Range was ignored and the stream ended without a cover.
+        if (response.statusCode == 200) return;
+      }
     } catch (_) {
-      // Artwork is optional; playback must continue if metadata cannot be read.
+      // Artwork is optional; playback must continue if metadata/cache fails.
     }
   }
 
@@ -339,7 +389,7 @@ class _LibraryPageState extends State<LibraryPage> {
       builder:(context,snapshot) {
         if(snapshot.connectionState==ConnectionState.waiting) return const Center(child:Column(mainAxisSize:MainAxisSize.min,children:[CircularProgressIndicator(color:_green),SizedBox(height:16),Text('Načítavam hudobnú knižnicu z kDrive…',style:TextStyle(color:_muted))]));
         if(snapshot.hasError) return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
-        final tracks=snapshot.data!.tracks; _cachedTracks=tracks; _prefetchArtwork(tracks);
+        final tracks=snapshot.data!.tracks; _cachedTracks=tracks; if (!_artworkPrefetchStarted) _prefetchArtwork(tracks);
         final visible=_visible(tracks);
         return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Padding(padding:const EdgeInsets.fromLTRB(20,12,20,14),child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
