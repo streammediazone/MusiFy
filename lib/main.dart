@@ -209,7 +209,7 @@ class _LibraryPageState extends State<LibraryPage> {
       toolbarHeight: 68,
       titleSpacing: 20,
       title: Row(children: [
-        Container(width: 38,height: 38,decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),gradient: const LinearGradient(colors:[Color(0xFF4020A0),Color(0xFF7B2DCE),_green],begin:Alignment.topLeft,end:Alignment.bottomRight)),child: const Center(child: Text('M',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:Colors.white)))),
+        ClipRRect(borderRadius: BorderRadius.circular(9),child: Image.asset('assets/images/musify_logo.jpg',width:46,height:46,fit:BoxFit.contain)),
         const SizedBox(width:11),
         const Text('Musi',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800,letterSpacing:-.7)),
         const Text('Fy',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800,color:_green,letterSpacing:-.7)),
