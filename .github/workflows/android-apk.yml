@@ -48,16 +48,7 @@ jobs:
           cp -R lib android_app/lib
           mkdir -p android_app/assets/images
           cp assets/images/musify_logo.jpg android_app/assets/images/musify_logo.jpg
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('android_app/lib/main.dart')
-          s = p.read_text()
-          old = "Container(width: 38,height: 38,decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),gradient: const LinearGradient(colors:[Color(0xFF4020A0),Color(0xFF7B2DCE),_green],begin:Alignment.topLeft,end:Alignment.bottomRight)),child: const Center(child: Text('M',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:Colors.white)))),"
-          new = "ClipRRect(borderRadius: BorderRadius.circular(9),child: Image.asset('assets/images/musify_logo.jpg',width:42,height:42,fit:BoxFit.contain)),"
-          if old not in s:
-              raise SystemExit('Logo placeholder not found; refusing to build with an unmodified UI.')
-          p.write_text(s.replace(old, new, 1))
-          PY
+          grep -q "assets/images/musify_logo.jpg" android_app/lib/main.dart
           cd android_app
           flutter pub add --dev flutter_launcher_icons
           cat > flutter_launcher_icons.yaml <<'EOF'
