@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -38,6 +39,55 @@ class MusiFyApp extends StatelessWidget {
     ),
     home: const LibraryPage(),
   );
+}
+
+
+class _FlacPictureResult {
+  const _FlacPictureResult(this.complete, this.image);
+  final bool complete;
+  final Uint8List? image;
+}
+
+/// Reads FLAC metadata blocks only. The HTTP stream is cancelled as soon as
+/// the last metadata block has arrived, so audio frames are not downloaded.
+_FlacPictureResult _readFlacPicture(Uint8List bytes) {
+  if (bytes.length < 4) return const _FlacPictureResult(false, null);
+  if (bytes[0] != 0x66 || bytes[1] != 0x4C || bytes[2] != 0x61 || bytes[3] != 0x43) {
+    return const _FlacPictureResult(true, null);
+  }
+  var offset = 4;
+  while (true) {
+    if (bytes.length < offset + 4) return const _FlacPictureResult(false, null);
+    final header = bytes[offset];
+    final type = header & 0x7F;
+    final last = (header & 0x80) != 0;
+    final length = (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+    final end = offset + 4 + length;
+    if (bytes.length < end) return const _FlacPictureResult(false, null);
+    if (type == 6) {
+      final block = ByteData.sublistView(bytes, offset + 4, end);
+      var p = 0;
+      int read32() { final v = block.getUint32(p, Endian.big); p += 4; return v; }
+      try {
+        read32(); // picture type
+        final mimeLength = read32();
+        p += mimeLength;
+        final descriptionLength = read32();
+        p += descriptionLength;
+        read32(); read32(); read32(); read32(); // dimensions, depth, indexed colors
+        final imageLength = read32();
+        if (mimeLength > length || p < 0 || imageLength <= 0 || p + imageLength > length) {
+          return _FlacPictureResult(last, null);
+        }
+        final image = Uint8List.fromList(bytes.sublist(offset + 4 + p, offset + 4 + p + imageLength));
+        return _FlacPictureResult(true, image);
+      } catch (_) {
+        return _FlacPictureResult(last, null);
+      }
+    }
+    offset = end;
+    if (last) return const _FlacPictureResult(true, null);
+  }
 }
 
 class Track {
@@ -144,6 +194,8 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _loadingTrack = false;
   List<Track>? _cachedTracks;
   bool _playlistReady = false;
+  final ValueNotifier<Map<String, Uint8List>> _artwork = ValueNotifier(<String, Uint8List>{});
+  final Set<String> _artworkRequested = <String>{};
   String _filter = 'Všetky';
   String _sort = 'Názov';
 
@@ -151,9 +203,9 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     _future = _service.loadAudioTracks();
     _player = AudioPlayer();
-    _player.currentIndexStream.listen((index) { if (mounted && index != null) setState(() => _currentIndex = index); });
+    _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
-  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _player.dispose(); super.dispose(); }
+  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
     _searchFocus.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
@@ -161,11 +213,59 @@ class _LibraryPageState extends State<LibraryPage> {
   }
   void _reload() => setState(() => _future = _service.loadAudioTracks());
 
+
+  Future<void> _loadArtwork(Track track) async {
+    if (!track.name.toLowerCase().endsWith('.flac') || _artworkRequested.contains(track.id)) return;
+    _artworkRequested.add(track.id);
+    try {
+      final request = http.Request('GET', _service._downloadUri(track.id));
+      request.headers['Accept'] = 'audio/flac, application/octet-stream, */*';
+      final response = await http.Client().send(request).timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200 && response.statusCode != 206) return;
+      final bytes = <int>[];
+      await for (final chunk in response.stream) {
+        bytes.addAll(chunk);
+        if (bytes.length > 64 * 1024 * 1024) break;
+        final parsed = _readFlacPicture(Uint8List.fromList(bytes));
+        if (parsed.complete) {
+          if (parsed.image != null && parsed.image!.isNotEmpty) {
+            final updated = Map<String, Uint8List>.from(_artwork.value)..[track.id] = parsed.image!;
+            _artwork.value = updated;
+          }
+          break;
+        }
+      }
+    } catch (_) {
+      // Artwork is optional; playback must continue if metadata cannot be read.
+    }
+  }
+
+  Widget _artworkOrFallback(String trackId, int index, {double size = 49, double iconSize = 25}) {
+    return ValueListenableBuilder<Map<String, Uint8List>>(
+      valueListenable: _artwork,
+      builder: (context, images, _) {
+        final bytes = images[trackId];
+        return Container(
+          width: size, height: size,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(size * .24),
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [[_green, const Color(0xFF1D7043), const Color(0xFF285C70), const Color(0xFF6B3D8E)][index % 4], _surface2]),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: bytes != null ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+            : Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)),
+        );
+      },
+    );
+  }
+
   Future<void> _playTrack(int index) async {
     final snapshot = await _future;
     final tracks = snapshot.tracks;
     if (index < 0 || index >= tracks.length) return;
     setState(() { _currentIndex = index; _loadingTrack = true; });
+    _loadArtwork(tracks[index]);
     try {
       if (!_playlistReady) {
         final sources = tracks.map((track) => AudioSource.uri(_service._downloadUri(track.id), tag: MediaItem(id: track.id, title: track.name, album: 'MusiFy'))).toList();
@@ -255,7 +355,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
                     child: Row(children: [
-                      _artTile(i, active),
+                      _artworkOrFallback(track.id, i),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(_title(track.name), maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -312,7 +412,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _openPlayer() {
     _dismissSearchKeyboard();
-    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[]));
+    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[],artwork:_artwork));
   }
   void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
@@ -389,7 +489,15 @@ class _FullPlayer extends StatelessWidget {
                   height:MediaQuery.of(context).size.width*.72,
                   constraints:const BoxConstraints(maxWidth:320,maxHeight:320),
                   decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withOpacity(.12),blurRadius:40,spreadRadius:2)]),
-                  child:const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
+                  child:ValueListenableBuilder<Map<String, Uint8List>>(
+                    valueListenable: artwork,
+                    builder:(context, images, _) {
+                      final image = valid ? images[tracks[index].id] : null;
+                      return image == null
+                        ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
+                        : ClipRRect(borderRadius:BorderRadius.circular(28),child:Image.memory(image,fit:BoxFit.cover,width:double.infinity,height:double.infinity));
+                    },
+                  ),
                 ),
                 const SizedBox(height:34),
                 Text(_title(name),key:ValueKey('title-$index'),maxLines:2,textAlign:TextAlign.center,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800,letterSpacing:-.4)),
