@@ -53,7 +53,7 @@ class _FlacPictureResult {
 
 /// Reads FLAC metadata blocks only. The HTTP stream is cancelled as soon as
 /// the last metadata block has arrived, so audio frames are not downloaded.
-_FlacPictureResult _readFlacPicture(Uint8List bytes) {
+_FlacPictureResult _readFlacPicture(List<int> bytes) {
   if (bytes.length < 4) return const _FlacPictureResult(false, null);
   if (bytes[0] != 0x66 || bytes[1] != 0x4C || bytes[2] != 0x61 || bytes[3] != 0x43) {
     return const _FlacPictureResult(true, null);
@@ -68,22 +68,25 @@ _FlacPictureResult _readFlacPicture(Uint8List bytes) {
     final end = offset + 4 + length;
     if (bytes.length < end) return const _FlacPictureResult(false, null);
     if (type == 6) {
-      final block = ByteData.sublistView(bytes, offset + 4, end);
-      var p = 0;
-      int read32() { final v = block.getUint32(p, Endian.big); p += 4; return v; }
+      var p = offset + 4;
+      int read32() {
+        if (p + 4 > end) throw const FormatException('Neúplný FLAC PICTURE blok.');
+        final value = (bytes[p] << 24) | (bytes[p + 1] << 16) | (bytes[p + 2] << 8) | bytes[p + 3];
+        p += 4;
+        return value;
+      }
       try {
         read32(); // picture type
         final mimeLength = read32();
+        if (mimeLength < 0 || p + mimeLength > end) throw const FormatException('Neplatná MIME dĺžka.');
         p += mimeLength;
         final descriptionLength = read32();
+        if (descriptionLength < 0 || p + descriptionLength > end) throw const FormatException('Neplatná dĺžka popisu.');
         p += descriptionLength;
         read32(); read32(); read32(); read32(); // dimensions, depth, indexed colors
         final imageLength = read32();
-        if (mimeLength > length || p < 0 || imageLength <= 0 || p + imageLength > length) {
-          return _FlacPictureResult(last, null);
-        }
-        final image = Uint8List.fromList(bytes.sublist(offset + 4 + p, offset + 4 + p + imageLength));
-        return _FlacPictureResult(true, image);
+        if (imageLength <= 0 || p + imageLength > end) return _FlacPictureResult(last, null);
+        return _FlacPictureResult(true, Uint8List.fromList(bytes.sublist(p, p + imageLength)));
       } catch (_) {
         return _FlacPictureResult(last, null);
       }
