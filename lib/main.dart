@@ -164,6 +164,7 @@ class KDriveService {
           if (audio && track.id.isNotEmpty) {
             audioItems++;
             folderTracks.add(track);
+            trackSourcePages.putIfAbsent(track.id, () => <String>[]).add('$folderId / strana $pageCount');
           } else if (excludedSamples.length < 8) {
             excludedSamples.add('${track.name} [${track.mimeType.isEmpty ? 'bez MIME' : track.mimeType}]');
           }
@@ -203,7 +204,8 @@ class KDriveService {
     diagnostics.add('Kontrola ID: prijaté audio=${tracks.length}, unikátne ID=${tracksById.length}, ID s opakovaním=${duplicateGroups.length}, nadbytočné výskyty=$duplicateOccurrences');
     for (final entry in duplicateGroups.take(20)) {
       final names = entry.value.map((track) => track.name).toSet().join(' / ');
-      diagnostics.add('Duplicitné ID ${entry.key} (výskytov ${entry.value.length}): $names');
+      final pages = trackSourcePages[entry.key]?.join(', ') ?? 'neznáma';
+      diagnostics.add('Duplicitné ID ${entry.key} (výskytov ${entry.value.length}, stránky: $pages): $names');
     }
     if (duplicateGroups.length > 20) {
       diagnostics.add('Ďalšie duplicitné ID: ${duplicateGroups.length - 20}');
