@@ -536,10 +536,10 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _artworkOrFallback(String trackId, int index, {double size = 49, double iconSize = 25}) {
-    return ValueListenableBuilder<Map<String, Uint8List>>(
-      valueListenable: _artwork,
-      builder: (context, images, _) {
-        final bytes = images[trackId];
+    return ValueListenableBuilder<Uint8List?>(
+      valueListenable: _artworkNotifier(trackId),
+      builder: (context, bytes, _) {
+        final pixelSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
         return Container(
           width: size, height: size,
           decoration: BoxDecoration(
@@ -548,33 +548,50 @@ class _LibraryPageState extends State<LibraryPage> {
               colors: [[_green, const Color(0xFF1D7043), const Color(0xFF285C70), const Color(0xFF6B3D8E)][index % 4], _surface2]),
           ),
           clipBehavior: Clip.antiAlias,
-          child: bytes != null ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
-            : Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)),
+          child: bytes != null
+              ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: pixelSize, cacheHeight: pixelSize)
+              : Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)),
         );
       },
     );
   }
 
   Future<void> _playTrack(int index) async {
-    final snapshot = await _future;
-    final tracks = snapshot.tracks;
+    final tracks = _loadedTracks ?? (await _future).tracks;
     if (index < 0 || index >= tracks.length) return;
     setState(() { _currentIndex = index; _loadingTrack = true; });
     _loadArtwork(tracks[index]);
     try {
       final latestIds = tracks.map((track) => track.id).toList(growable: false);
-      if (!_playlistReady || !listEquals(latestIds, _playlistTrackIds)) {
-        final sources = tracks.map((track) => AudioSource.uri(_service._downloadUri(track.id), tag: MediaItem(id: track.id, title: track.name, album: 'MusiFy'))).toList();
-        await _player.setAudioSource(ConcatenatingAudioSource(children: sources), initialIndex: index, initialPosition: Duration.zero);
+      if (!_playlistReady || _playlistSource == null) {
+        final source = ConcatenatingAudioSource(
+          children: tracks.map(_audioSourceFor).toList(growable: false),
+        );
+        await _player.setAudioSource(source, initialIndex: index, initialPosition: Duration.zero);
+        _playlistSource = source;
         _playlistTrackIds = latestIds;
         _playlistReady = true;
-      } else { await _player.seek(Duration.zero, index: index); }
+      } else if (!listEquals(latestIds, _playlistTrackIds)) {
+        final additions = tracks.where((track) => !_playlistTrackIds.contains(track.id)).toList(growable: false);
+        if (additions.isNotEmpty) {
+          await _playlistSource!.addAll(additions.map(_audioSourceFor).toList(growable: false));
+          _playlistTrackIds.addAll(additions.map((track) => track.id));
+        }
+        final currentPlaylistIndex = _playlistTrackIds.indexOf(tracks[index].id);
+        if (currentPlaylistIndex >= 0) {
+          await _player.seek(Duration.zero, index: currentPlaylistIndex);
+        }
+      } else {
+        await _player.seek(Duration.zero, index: index);
+      }
       final playbackFuture = _player.play();
       if (mounted) setState(() => _loadingTrack = false);
       await playbackFuture;
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Skladbu sa nepodarilo prehrať: $error')));
-    } finally { if (mounted) setState(() => _loadingTrack = false); }
+    } finally {
+      if (mounted) setState(() => _loadingTrack = false);
+    }
   }
   Future<void> _togglePlayback() async {
     if (_player.playing) { await _player.pause(); }
