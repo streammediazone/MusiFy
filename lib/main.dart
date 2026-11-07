@@ -191,7 +191,24 @@ class KDriveService {
         diagnostics.addAll(result.logs);
       }
     }
-    // A paginated folder response can repeat an item; keep one entry per kDrive file ID.
+    // Report ID collisions before deduplication so we can distinguish repeated
+    // API entries from different files incorrectly sharing the same identifier.
+    final tracksById = <String, List<Track>>{};
+    for (final track in tracks) {
+      tracksById.putIfAbsent(track.id, () => <Track>[]).add(track);
+    }
+    final duplicateGroups = tracksById.entries.where((entry) => entry.value.length > 1).toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    final duplicateOccurrences = tracks.length - tracksById.length;
+    diagnostics.add('Kontrola ID: prijaté audio=${tracks.length}, unikátne ID=${tracksById.length}, ID s opakovaním=${duplicateGroups.length}, nadbytočné výskyty=$duplicateOccurrences');
+    for (final entry in duplicateGroups.take(20)) {
+      final names = entry.value.map((track) => track.name).toSet().join(' / ');
+      diagnostics.add('Duplicitné ID ${entry.key} (výskytov ${entry.value.length}): $names');
+    }
+    if (duplicateGroups.length > 20) {
+      diagnostics.add('Ďalšie duplicitné ID: ${duplicateGroups.length - 20}');
+    }
+    // Keep the existing one-entry-per-ID behavior until the collision cause is known.
     final uniqueTracks = <String, Track>{};
     for (final track in tracks) { uniqueTracks[track.id] = track; }
     final orderedTracks = uniqueTracks.values.toList()
