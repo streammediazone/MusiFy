@@ -329,6 +329,7 @@ class _LibraryPageState extends State<LibraryPage> {
   late Future<LibraryResult> _future;
   late final AudioPlayer _player;
   List<Track>? _loadedTracks;
+  final ValueNotifier<List<Track>> _tracksListenable = ValueNotifier<List<Track>>(<Track>[]);
   ConcatenatingAudioSource? _playlistSource;
   Future<void> _playlistMutation = Future<void>.value();
   int _initialArtworkCompleted = 0;
@@ -360,7 +361,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _player = AudioPlayer();
     _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _loadedTracks ?? _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
-  @override void dispose() { _searchFocus.dispose(); _search.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
+  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _tracksListenable.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
     _searchFocus.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
@@ -373,6 +374,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _currentIndex = null;
     _cachedTracks = null;
     _loadedTracks = null;
+    _tracksListenable.value = <Track>[];
     _playlistSource = null;
     _artworkRequested.clear();
     _artworkChecked.clear();
@@ -403,11 +405,13 @@ class _LibraryPageState extends State<LibraryPage> {
       if (mounted) setState(() {});
     });
     _loadedTracks = tracks;
+    _tracksListenable.value = tracks;
     if (mounted) setState(() {});
   }
 
   Future<void> _handleLibraryProgress(List<Track> tracks) async {
     _loadedTracks = tracks;
+    _tracksListenable.value = tracks;
     if (mounted) setState(() {});
     await _appendTracksToPlaylist(tracks);
   }
@@ -852,7 +856,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _openPlayer() {
     _dismissSearchKeyboard();
-    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[],artworkForTrack:_artworkNotifier));
+    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracksListenable:_tracksListenable,artworkForTrack:_artworkNotifier));
   }
   void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
@@ -944,9 +948,9 @@ class _LibraryPageState extends State<LibraryPage> {
 }
 
 class _FullPlayer extends StatelessWidget {
-  const _FullPlayer({required this.player,required this.tracks,required this.artworkForTrack});
+  const _FullPlayer({required this.player,required this.tracksListenable,required this.artworkForTrack});
   final AudioPlayer player;
-  final List<Track> tracks;
+  final ValueListenable<List<Track>> tracksListenable;
   final ValueListenable<Uint8List?> Function(String) artworkForTrack;
   String _time(Duration d)=>'${d.inMinutes}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   String _artist(String name) {
@@ -966,7 +970,9 @@ class _FullPlayer extends StatelessWidget {
       child:SafeArea(
         child:Padding(
           padding:const EdgeInsets.fromLTRB(22,8,22,20),
-          child:StreamBuilder<int?>(
+          child:ValueListenableBuilder<List<Track>>(
+            valueListenable: tracksListenable,
+            builder: (context, tracks, _) => StreamBuilder<int?>(
             stream:player.currentIndexStream,
             initialData:player.currentIndex,
             builder:(context,indexSnapshot) {
@@ -1028,6 +1034,7 @@ class _FullPlayer extends StatelessWidget {
                 const Spacer(),
               ]);
             },
+          ),
           ),
         ),
       ),
