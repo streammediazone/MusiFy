@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -103,7 +102,6 @@ class KDriveService {
       final excludedSamples = <String>[];
       final pageDiagnostics = <String>[];
       final seenPageAudioIds = <String>{};
-      final requestedPageAudioIds = <int, List<String>>{};
       var pageCount = 0;
       var listedItems = 0;
       var fileItems = 0;
@@ -149,7 +147,6 @@ class KDriveService {
         }
         final firstIds = pageAudioIds.take(5).join(',');
         final lastIds = pageAudioIds.length <= 5 ? '' : pageAudioIds.skip(pageAudioIds.length - 5).join(',');
-        if (cursor == null) requestedPageAudioIds[pageNumber] = List<String>.from(pageAudioIds);
         final overlap = pageRepeatedIds.take(12).join(',');
         pageDiagnostics.add('Strana $pageCount: request=$requestMode, položiek=${pageData.items.length}, audio=${pageAudioIds.length}, prvé ID=[$firstIds], posledné ID=[$lastIds], opakovanie z predošlých strán=${pageRepeatedIds.length}${overlap.isEmpty ? '' : ' [$overlap]'}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null || pageData.cursor!.isEmpty ? 'nie' : 'áno (${pageData.cursor!.length} znakov)'}, ${pageData.responseKeys}');
         if (!initialBatchPublished && allUniqueTracks.length >= 100) {
@@ -398,10 +395,14 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!_playlistReady || source == null || tracks.isEmpty) return;
     final additions = tracks.where((track) => !_playlistTrackIds.contains(track.id)).toList(growable: false);
     if (additions.isEmpty) return;
+    // Reserve IDs before awaiting so concurrent page callbacks cannot append
+    // the same tracks twice.
+    _playlistTrackIds.addAll(additions.map((track) => track.id));
     try {
       await source.addAll(additions.map(_audioSourceFor).toList(growable: false));
-      _playlistTrackIds.addAll(additions.map((track) => track.id));
     } catch (_) {
+      final failedIds = additions.map((track) => track.id).toSet();
+      _playlistTrackIds.removeWhere(failedIds.contains);
       // A library update must never interrupt current playback.
     }
   }
@@ -593,12 +594,9 @@ class _LibraryPageState extends State<LibraryPage> {
         _playlistSource = source;
         _playlistTrackIds = latestIds;
         _playlistReady = true;
+        await _appendTracksToPlaylist(_loadedTracks ?? tracks);
       } else if (!listEquals(latestIds, _playlistTrackIds)) {
-        final additions = tracks.where((track) => !_playlistTrackIds.contains(track.id)).toList(growable: false);
-        if (additions.isNotEmpty) {
-          await _playlistSource!.addAll(additions.map(_audioSourceFor).toList(growable: false));
-          _playlistTrackIds.addAll(additions.map((track) => track.id));
-        }
+        await _appendTracksToPlaylist(tracks);
         final currentPlaylistIndex = _playlistTrackIds.indexOf(tracks[index].id);
         if (currentPlaylistIndex >= 0) {
           await _player.seek(Duration.zero, index: currentPlaylistIndex);
