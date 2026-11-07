@@ -132,6 +132,7 @@ class KDriveService {
     final tracks = <Track>[];
     final allUniqueTracks = <String, Track>{};
     var initialBatchPublished = false;
+    var initialBatchReady = false;
     final trackSourcePages = <String, List<String>>{};
     final itemDiagnosticMetadata = <String, String>{};
     var pendingFolders = <String>[rootId];
@@ -199,7 +200,8 @@ class KDriveService {
         if (!initialBatchPublished && allUniqueTracks.length >= 100) {
           initialBatchPublished = true;
           await onInitialBatchReady?.call(allUniqueTracks.values.take(100).toList(growable: false));
-        } else if (initialBatchPublished) {
+          initialBatchReady = true;
+        } else if (initialBatchPublished && initialBatchReady) {
           await onProgress?.call(allUniqueTracks.values.toList(growable: false));
         }
         if (!pageData.hasMore) break;
@@ -229,6 +231,7 @@ class KDriveService {
     if (!initialBatchPublished && allUniqueTracks.isNotEmpty) {
       initialBatchPublished = true;
       await onInitialBatchReady?.call(allUniqueTracks.values.take(100).toList(growable: false));
+      initialBatchReady = true;
     }
     // Report ID collisions before deduplication so we can distinguish repeated
     // API entries from different files incorrectly sharing the same identifier.
@@ -252,6 +255,7 @@ class KDriveService {
     final uniqueTracks = Map<String, Track>.from(allUniqueTracks);
     final orderedTracks = uniqueTracks.values.toList(growable: false);
     diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${orderedTracks.length} (unikátne ID)');
+    if (initialBatchReady) await onProgress?.call(orderedTracks);
     return LibraryResult(orderedTracks, diagnostics);
   }
   _Page _parsePage(dynamic value) {
