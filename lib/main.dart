@@ -354,7 +354,7 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     _future = _loadLibrary();
     _player = AudioPlayer();
-    _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
+    _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _loadedTracks ?? _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
   @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
@@ -634,9 +634,10 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Future<void> _playTrack(int index) async {
+  Future<void> _playTrack(String trackId) async {
     final tracks = _loadedTracks ?? (await _future).tracks;
-    if (index < 0 || index >= tracks.length) return;
+    final index = tracks.indexWhere((track) => track.id == trackId);
+    if (index < 0) return;
     setState(() { _currentIndex = index; _loadingTrack = true; });
     _loadArtwork(tracks[index]);
     try {
@@ -747,7 +748,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 borderRadius: BorderRadius.circular(15),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(15),
-                  onTap: originalIndex < 0 ? null : () => _playTrack(originalIndex),
+                  onTap: originalIndex < 0 ? null : () => _playTrack(track.id),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
                     child: Row(children: [
