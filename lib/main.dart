@@ -486,7 +486,9 @@ class _LibraryPageState extends State<LibraryPage> {
   void _prioritizeArtwork(Track track) {
     if (!track.name.toLowerCase().endsWith('.flac') ||
         _artworkChecked.contains(track.id) ||
-        _artworkRequested.contains(track.id)) return;
+        _artworkRequested.contains(track.id)) {
+      return;
+    }
     final queuedIndex = _artworkQueue.indexWhere((item) => item.id == track.id);
     if (queuedIndex > 0) {
       final queued = _artworkQueue.removeAt(queuedIndex);
@@ -806,9 +808,9 @@ class _LibraryPageState extends State<LibraryPage> {
       title: const Text('Diagnostika prehrávania'),
       children: [
         StreamBuilder<MediaItem?>(
-          stream: AudioService.handler.mediaItem,
+          stream: AudioService.currentMediaItemStream,
           builder: (context, mediaSnapshot) => StreamBuilder<PlaybackState>(
-            stream: AudioService.handler.playbackState,
+            stream: AudioService.playbackStateStream,
             builder: (context, stateSnapshot) {
               final media = mediaSnapshot.data;
               final state = stateSnapshot.data;
@@ -865,9 +867,11 @@ class _LibraryPageState extends State<LibraryPage> {
                     child: TextButton.icon(
                       onPressed: () async {
                         await Clipboard.setData(ClipboardData(text: report));
-                        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Diagnostika skopírovaná do schránky')),
-                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Diagnostika skopírovaná do schránky')),
+                          );
+                        }
                       },
                       icon: const Icon(Icons.copy_rounded, size: 18),
                       label: const Text('Kopírovať diagnostiku'),
