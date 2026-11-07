@@ -137,29 +137,47 @@ class KDriveService {
       final childFolders = <String>[];
       final logs = <String>[];
       final cursors = <String>{};
+      final excludedSamples = <String>[];
+      var pageCount = 0;
+      var listedItems = 0;
+      var fileItems = 0;
+      var audioItems = 0;
+      var lastHasMore = false;
+      var hitPageLimit = false;
       String? cursor;
       var pageNumber = 1;
       for (var page = 0; page < 100; page++) {
         final response = await _getJson(_folderFilesUri(folderId, cursor: cursor, page: cursor == null ? pageNumber : null));
         final pageData = _parsePage(response);
-        logs.add('Priečinok $folderId / strana ${page + 1}: položiek ${pageData.items.length}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null ? 'null' : 'prítomný'}, ${pageData.responseKeys}');
+        pageCount++;
+        listedItems += pageData.items.length;
+        lastHasMore = pageData.hasMore;
         for (final item in pageData.items) {
           final type = (item['type'] ?? '').toString();
           final id = (item['id'] ?? '').toString();
           if (type == 'dir' && id.isNotEmpty) { childFolders.add(id); continue; }
           if (type != 'file') continue;
+          fileItems++;
           final track = Track.fromJson(item);
           final name = track.name.toLowerCase();
           final audio = track.mimeType.startsWith('audio/') || const ['.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma'].any(name.endsWith);
-          if (audio && track.id.isNotEmpty) folderTracks.add(track);
+          if (audio && track.id.isNotEmpty) {
+            audioItems++;
+            folderTracks.add(track);
+          } else if (excludedSamples.length < 8) {
+            excludedSamples.add('${track.name} [${track.mimeType.isEmpty ? 'bez MIME' : track.mimeType}]');
+          }
         }
         if (!pageData.hasMore) break;
+        if (page == 99) hitPageLimit = true;
         final next = pageData.cursor;
         if (next != null && next.isNotEmpty) {
           if (!cursors.add(next)) throw Exception('kDrive opakovane vrátil rovnaký kurzor.');
           cursor = next;
         } else { pageNumber++; }
       }
+      logs.add('Priečinok $folderId: stránok=$pageCount, položiek=$listedItems, súborov=$fileItems, rozpoznané audio=$audioItems, podpriečinky=${childFolders.length}, posledné has_more=$lastHasMore, limit 100 strán=${hitPageLimit ? 'ÁNO' : 'nie'}');
+      if (excludedSamples.isNotEmpty) logs.add('Vynechané súbory (ukážka): ${excludedSamples.join(' | ')}');
       return (tracks: folderTracks, folders: childFolders, logs: logs);
     }
     while (pendingFolders.isNotEmpty) {
@@ -555,11 +573,27 @@ class _LibraryPageState extends State<LibraryPage> {
                 child: Text('Diagnostické údaje nie sú dostupné.', style: TextStyle(color: _muted)),
               );
             }
+            final report = result.diagnostics.join('\\n');
             return Padding(
               padding: const EdgeInsets.all(12),
-              child: SelectableText(
-                result.diagnostics.join('\\n'),
-                style: const TextStyle(color: _muted, fontSize: 11),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: report));
+                        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Diagnostika skopírovaná do schránky')),
+                        );
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 18),
+                      label: const Text('Kopírovať diagnostiku'),
+                    ),
+                  ),
+                  SelectableText(report, style: const TextStyle(color: _muted, fontSize: 11)),
+                ],
               ),
             );
           },
