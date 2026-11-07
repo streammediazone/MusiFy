@@ -567,9 +567,11 @@ class _LibraryPageState extends State<LibraryPage> {
           else _artworkHasImage.remove(track.id);
         } else {
           _artworkHasImage.remove(track.id);
+          _artworkChecked.remove(track.id);
         }
       } catch (_) {
         _artworkHasImage.remove(track.id);
+        _artworkChecked.remove(track.id);
       } finally {
         _artworkRequested.remove(track.id);
       }
@@ -630,14 +632,17 @@ class _LibraryPageState extends State<LibraryPage> {
             throw const FormatException('FLAC PICTURE metadáta sa nezmestili do rozsahu 8 MB.');
           }
 
-          _artworkChecked.add(track.id);
           if (image != null && image.isNotEmpty) {
             final target = File('${directory.path}/${_artworkCacheName(track.id)}.img');
             final temporary = File('${target.path}.tmp');
             await temporary.writeAsBytes(image, flush: true);
             if (await target.exists()) await target.delete();
             await temporary.rename(target.path);
+            _artworkChecked.add(track.id);
             _publishArtwork(track.id, image);
+          } else {
+            _artworkHasImage.remove(track.id);
+            _artworkChecked.add(track.id);
           }
           return;
         } catch (_) {
