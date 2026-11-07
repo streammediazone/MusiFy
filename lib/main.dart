@@ -954,10 +954,10 @@ class _LibraryPageState extends State<LibraryPage> {
 }
 
 class _FullPlayer extends StatelessWidget {
-  const _FullPlayer({required this.player,required this.tracks,required this.artwork});
+  const _FullPlayer({required this.player,required this.tracks,required this.artworkForTrack});
   final AudioPlayer player;
   final List<Track> tracks;
-  final ValueListenable<Map<String, Uint8List>> artwork;
+  final ValueListenable<Uint8List?> Function(String) artworkForTrack;
   String _time(Duration d)=>'${d.inMinutes}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   String _artist(String name) {
     final dash=name.indexOf(' - ');
@@ -995,15 +995,17 @@ class _FullPlayer extends StatelessWidget {
                   height:MediaQuery.of(context).size.width*.72,
                   constraints:const BoxConstraints(maxWidth:320,maxHeight:320),
                   decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withValues(alpha: .12),blurRadius:40,spreadRadius:2)]),
-                  child:ValueListenableBuilder<Map<String, Uint8List>>(
-                    valueListenable: artwork,
-                    builder:(context, images, _) {
-                      final image = valid ? images[tracks[index].id] : null;
-                      return image == null
-                        ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
-                        : ClipRRect(borderRadius:BorderRadius.circular(28),child:Image.memory(image,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640));
-                    },
-                  ),
+                  child: valid
+                    ? ValueListenableBuilder<Uint8List?>(
+                        valueListenable: artworkForTrack(tracks[index].id),
+                        builder: (context, image, _) => image == null
+                          ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
+                          : ClipRRect(
+                              borderRadius:BorderRadius.circular(28),
+                              child:Image.memory(image,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640),
+                            ),
+                      )
+                    : const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
                 ),
                 const SizedBox(height:34),
                 Text(_title(name),key:ValueKey('title-$index'),maxLines:2,textAlign:TextAlign.center,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800,letterSpacing:-.4)),
