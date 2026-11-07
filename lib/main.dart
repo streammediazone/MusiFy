@@ -159,7 +159,10 @@ class KDriveService {
           initialBatchReady = true;
         } else if (initialBatchPublished && initialBatchReady) {
           final progressTracks = allUniqueTracks.values.toList()
-              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+              ..sort((a, b) {
+                final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+                return byName != 0 ? byName : a.id.compareTo(b.id);
+              });
           await onProgress?.call(progressTracks);
         }
         if (!pageData.hasMore) break;
@@ -189,7 +192,10 @@ class KDriveService {
     if (!initialBatchPublished && allUniqueTracks.isNotEmpty) {
       initialBatchPublished = true;
       final initialTracks = allUniqueTracks.values.take(100).toList()
-          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          ..sort((a, b) {
+                final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+                return byName != 0 ? byName : a.id.compareTo(b.id);
+              });
       await onInitialBatchReady?.call(initialTracks);
       initialBatchReady = true;
     }
@@ -214,7 +220,10 @@ class KDriveService {
     // Keep the existing one-entry-per-ID behavior until the collision cause is known.
     final uniqueTracks = Map<String, Track>.from(allUniqueTracks);
     final orderedTracks = uniqueTracks.values.toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      ..sort((a, b) {
+                final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+                return byName != 0 ? byName : a.id.compareTo(b.id);
+              });
     diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${orderedTracks.length} (unikátne ID)');
     if (initialBatchReady) await onProgress?.call(orderedTracks);
     return LibraryResult(orderedTracks, diagnostics);
