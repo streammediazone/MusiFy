@@ -414,8 +414,12 @@ class _LibraryPageState extends State<LibraryPage> {
     // at their final position so the playback queue keeps the same order.
     for (var index = 0; index < tracks.length; index++) {
       final track = tracks[index];
-      if (index < _playlistTrackIds.length && _playlistTrackIds[index] == track.id) continue;
-      if (_playlistTrackIds.contains(track.id)) continue;
+      if (index < _playlistTrackIds.length && _playlistTrackIds[index] == track.id) {
+        continue;
+      }
+      if (_playlistTrackIds.contains(track.id)) {
+        continue;
+      }
       _playlistTrackIds.insert(index, track.id);
       try {
         await source.insert(index, _audioSourceFor(track));
@@ -757,7 +761,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Widget _filterChip(String label,bool all) {
     final selected=all;
-    return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all)return;},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:const Color(0xFF29342C)),padding:const EdgeInsets.symmetric(horizontal:8));
+    return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all) { return; }},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:const Color(0xFF29342C)),padding:const EdgeInsets.symmetric(horizontal:8));
   }
   Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(
     margin:const EdgeInsets.fromLTRB(10,0,10,7),
