@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -335,6 +334,7 @@ class _LibraryPageState extends State<LibraryPage> {
   int _initialArtworkCompleted = 0;
   int _initialArtworkTotal = 100;
   int _initialArtworkFailures = 0;
+  String _initialArtworkStage = 'Sťahujem a kontrolujem obaly';
   final _search = TextEditingController();
   final _searchFocus = FocusNode();
   int? _currentIndex;
@@ -343,12 +343,9 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _playlistReady = false;
   List<String> _playlistTrackIds = <String>[];
   final Set<String> _artworkHasImage = <String>{};
-  final Set<String> _initialPageArtworkIds = <String>{};
-  final Queue<String> _artworkMemoryOrder = Queue<String>();
-  static const int _maxArtworkMemoryEntries = 180;
   final Set<String> _artworkRequested = <String>{};
   final Set<String> _artworkChecked = <String>{};
-  final Map<String, ValueNotifier<Uint8List?>> _trackArtwork = <String, ValueNotifier<Uint8List?>>{};
+  final Map<String, ValueNotifier<File?>> _trackArtwork = <String, ValueNotifier<File?>>{};
   final List<Track> _artworkQueue = <Track>[];
   int _activeArtworkWorkers = 0;
   Directory? _artworkCacheDirectory;
@@ -380,7 +377,6 @@ class _LibraryPageState extends State<LibraryPage> {
     _artworkRequested.clear();
     _artworkChecked.clear();
     _artworkQueue.clear();
-    _initialPageArtworkIds.clear();
     _initialArtworkCompleted = 0;
     if (!mounted) return;
     setState(() => _future = _loadLibrary());
@@ -396,9 +392,6 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!mounted) return;
     _initialArtworkTotal = tracks.length;
     _initialArtworkCompleted = 0;
-    _initialPageArtworkIds
-      ..clear()
-      ..addAll(tracks.map((track) => track.id));
     _initialArtworkFailures = 0;
     if (mounted) setState(() {});
     await _prefetchArtwork(tracks, onProgress: (done, total) {
@@ -483,45 +476,19 @@ class _LibraryPageState extends State<LibraryPage> {
     await Future.wait(List.generate(workers, (_) => worker()));
   }
 
-  ValueNotifier<Uint8List?> _artworkNotifier(String id) =>
-      _trackArtwork.putIfAbsent(id, () => ValueNotifier<Uint8List?>(null));
+  ValueNotifier<File?> _artworkNotifier(String id) =>
+      _trackArtwork.putIfAbsent(id, () => ValueNotifier<File?>(null));
 
-  bool _isCurrentArtwork(String id) {
-    final tracks = _loadedTracks ?? _cachedTracks;
-    final index = _currentIndex;
-    return _initialPageArtworkIds.contains(id) ||
-        (tracks != null && index != null && index >= 0 &&
-         index < tracks.length && tracks[index].id == id);
-  }
-
-  void _touchArtwork(String id) {
-    _artworkMemoryOrder.remove(id);
-    _artworkMemoryOrder.addLast(id);
-  }
-
-  void _publishArtwork(String id, Uint8List image) {
-    _artworkNotifier(id).value = image;
+  void _publishArtwork(String id, File imageFile) {
     _artworkHasImage.add(id);
-    _touchArtwork(id);
-    while (_artworkMemoryOrder.length > _maxArtworkMemoryEntries) {
-      final oldest = _artworkMemoryOrder.removeFirst();
-      if (_isCurrentArtwork(oldest)) {
-        _artworkMemoryOrder.addLast(oldest);
-        continue;
-      }
-      final notifier = _trackArtwork[oldest];
-      if (notifier != null) notifier.value = null;
-    }
+    _artworkNotifier(id).value = imageFile;
   }
 
   void _prioritizeArtwork(Track track) {
     if (!track.name.toLowerCase().endsWith('.flac')) return;
     if (_artworkChecked.contains(track.id)) {
-      final notifier = _artworkNotifier(track.id);
-      if (_artworkHasImage.contains(track.id) && notifier.value == null) {
-        _loadArtwork(track); // Restore an evicted image from the disk cache.
-      } else if (notifier.value != null) {
-        _touchArtwork(track.id);
+      if (_artworkHasImage.contains(track.id) && _artworkNotifier(track.id).value == null) {
+        _loadArtwork(track); // Restore the file reference from the disk cache if needed.
       }
       return;
     }
@@ -563,19 +530,13 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
     if (_artworkChecked.contains(track.id)) {
-      final notifier = _artworkNotifier(track.id);
-      if (!_artworkHasImage.contains(track.id) || notifier.value != null) {
-        if (notifier.value != null) _touchArtwork(track.id);
-        return;
-      }
+      if (!_artworkHasImage.contains(track.id) || _artworkNotifier(track.id).value != null) return;
       if (!_artworkRequested.add(track.id)) return;
       try {
         final directory = await _getArtworkCacheDirectory();
         final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
-        if (await cached.exists()) {
-          final data = await cached.readAsBytes();
-          if (data.isNotEmpty) _publishArtwork(track.id, data);
-          else _artworkHasImage.remove(track.id);
+        if (await cached.exists() && await cached.length() > 0) {
+          _publishArtwork(track.id, cached);
         } else {
           _artworkHasImage.remove(track.id);
           _artworkChecked.remove(track.id);
@@ -596,10 +557,10 @@ class _LibraryPageState extends State<LibraryPage> {
           final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
           if (await cached.exists()) {
             try {
-              final data = await cached.readAsBytes();
-              if (data.isNotEmpty) {
+              final length = await cached.length();
+              if (length > 0) {
                 _artworkChecked.add(track.id);
-                _publishArtwork(track.id, data);
+                _publishArtwork(track.id, cached);
                 return;
               }
               await cached.delete();
@@ -659,7 +620,7 @@ class _LibraryPageState extends State<LibraryPage> {
             if (await target.exists()) await target.delete();
             await temporary.rename(target.path);
             _artworkChecked.add(track.id);
-            _publishArtwork(track.id, image);
+            _publishArtwork(track.id, target);
           } else {
             _artworkHasImage.remove(track.id);
             _artworkChecked.add(track.id);
@@ -680,7 +641,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _artworkOrFallback(String trackId, int index, {double size = 49, double iconSize = 25}) {
     return ValueListenableBuilder<Uint8List?>(
       valueListenable: _artworkNotifier(trackId),
-      builder: (context, bytes, _) {
+      builder: (context, file, _) {
         final pixelSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
         return Container(
           width: size, height: size,
@@ -690,8 +651,8 @@ class _LibraryPageState extends State<LibraryPage> {
               colors: [[_green, const Color(0xFF1D7043), const Color(0xFF285C70), const Color(0xFF6B3D8E)][index % 4], _surface2]),
           ),
           clipBehavior: Clip.antiAlias,
-          child: bytes != null
-              ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: pixelSize, cacheHeight: pixelSize)
+          child: file != null
+              ? Image.file(file, fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: pixelSize, cacheHeight: pixelSize)
               : Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)),
         );
       },
@@ -967,7 +928,7 @@ class _FullPlayer extends StatelessWidget {
   const _FullPlayer({required this.player,required this.tracksListenable,required this.artworkForTrack});
   final AudioPlayer player;
   final ValueListenable<List<Track>> tracksListenable;
-  final ValueListenable<Uint8List?> Function(String) artworkForTrack;
+  final ValueListenable<File?> Function(String) artworkForTrack;
   String _time(Duration d)=>'${d.inMinutes}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   String _artist(String name) {
     final dash=name.indexOf(' - ');
@@ -1008,13 +969,13 @@ class _FullPlayer extends StatelessWidget {
                   constraints:const BoxConstraints(maxWidth:320,maxHeight:320),
                   decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withValues(alpha: .12),blurRadius:40,spreadRadius:2)]),
                   child: valid
-                    ? ValueListenableBuilder<Uint8List?>(
+                    ? ValueListenableBuilder<File?>(
                         valueListenable: artworkForTrack(tracks[index].id),
-                        builder: (context, image, _) => image == null
+                        builder: (context, imageFile, _) => imageFile == null
                           ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
                           : ClipRRect(
                               borderRadius:BorderRadius.circular(28),
-                              child:Image.memory(image,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640),
+                              child:Image.file(imageFile,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640),
                             ),
                       )
                     : const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
