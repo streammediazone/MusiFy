@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -340,7 +341,9 @@ class _LibraryPageState extends State<LibraryPage> {
   List<Track>? _cachedTracks;
   bool _playlistReady = false;
   List<String> _playlistTrackIds = <String>[];
-  final ValueNotifier<Map<String, Uint8List>> _artwork = ValueNotifier(<String, Uint8List>{});
+  final Set<String> _artworkHasImage = <String>{};
+  final Queue<String> _artworkMemoryOrder = Queue<String>();
+  static const int _maxArtworkMemoryEntries = 180;
   final Set<String> _artworkRequested = <String>{};
   final Set<String> _artworkChecked = <String>{};
   final Map<String, ValueNotifier<Uint8List?>> _trackArtwork = <String, ValueNotifier<Uint8List?>>{};
@@ -356,7 +359,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _player = AudioPlayer();
     _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _loadedTracks ?? _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
-  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
+  @override void dispose() { _searchFocus.dispose(); _search.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
     _searchFocus.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
@@ -470,12 +473,33 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   ValueNotifier<Uint8List?> _artworkNotifier(String id) =>
-      _trackArtwork.putIfAbsent(id, () => ValueNotifier<Uint8List?>(_artwork.value[id]));
+      _trackArtwork.putIfAbsent(id, () => ValueNotifier<Uint8List?>(null));
+
+  bool _isCurrentArtwork(String id) {
+    final tracks = _loadedTracks ?? _cachedTracks;
+    final index = _currentIndex;
+    return tracks != null && index != null && index >= 0 &&
+        index < tracks.length && tracks[index].id == id;
+  }
+
+  void _touchArtwork(String id) {
+    _artworkMemoryOrder.remove(id);
+    _artworkMemoryOrder.addLast(id);
+  }
 
   void _publishArtwork(String id, Uint8List image) {
     _artworkNotifier(id).value = image;
-    final updated = Map<String, Uint8List>.from(_artwork.value)..[id] = image;
-    _artwork.value = updated;
+    _artworkHasImage.add(id);
+    _touchArtwork(id);
+    while (_artworkMemoryOrder.length > _maxArtworkMemoryEntries) {
+      final oldest = _artworkMemoryOrder.removeFirst();
+      if (_isCurrentArtwork(oldest)) {
+        _artworkMemoryOrder.addLast(oldest);
+        continue;
+      }
+      final notifier = _trackArtwork[oldest];
+      if (notifier != null) notifier.value = null;
+    }
   }
 
   void _enqueueArtwork(List<Track> tracks) {
@@ -495,11 +519,17 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _prioritizeArtwork(Track track) {
-    if (!track.name.toLowerCase().endsWith('.flac') ||
-        _artworkChecked.contains(track.id) ||
-        _artworkRequested.contains(track.id)) {
+    if (!track.name.toLowerCase().endsWith('.flac')) return;
+    if (_artworkChecked.contains(track.id)) {
+      final notifier = _artworkNotifier(track.id);
+      if (_artworkHasImage.contains(track.id) && notifier.value == null) {
+        _loadArtwork(track); // Restore an evicted image from the disk cache.
+      } else if (notifier.value != null) {
+        _touchArtwork(track.id);
+      }
       return;
     }
+    if (_artworkRequested.contains(track.id)) return;
     final queuedIndex = _artworkQueue.indexWhere((item) => item.id == track.id);
     if (queuedIndex > 0) {
       final queued = _artworkQueue.removeAt(queuedIndex);
@@ -536,7 +566,31 @@ class _LibraryPageState extends State<LibraryPage> {
       _artworkChecked.add(track.id);
       return;
     }
-    if (_artworkChecked.contains(track.id) || !_artworkRequested.add(track.id)) return;
+    if (_artworkChecked.contains(track.id)) {
+      final notifier = _artworkNotifier(track.id);
+      if (!_artworkHasImage.contains(track.id) || notifier.value != null) {
+        if (notifier.value != null) _touchArtwork(track.id);
+        return;
+      }
+      if (!_artworkRequested.add(track.id)) return;
+      try {
+        final directory = await _getArtworkCacheDirectory();
+        final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+        if (await cached.exists()) {
+          final data = await cached.readAsBytes();
+          if (data.isNotEmpty) _publishArtwork(track.id, data);
+          else _artworkHasImage.remove(track.id);
+        } else {
+          _artworkHasImage.remove(track.id);
+        }
+      } catch (_) {
+        _artworkHasImage.remove(track.id);
+      } finally {
+        _artworkRequested.remove(track.id);
+      }
+      return;
+    }
+    if (!_artworkRequested.add(track.id)) return;
     try {
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
@@ -808,7 +862,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _openPlayer() {
     _dismissSearchKeyboard();
-    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[],artwork:_artwork));
+    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracks:_cachedTracks??const <Track>[],artworkForTrack:_artworkNotifier));
   }
   void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
