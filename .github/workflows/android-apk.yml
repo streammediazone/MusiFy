@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -46,6 +48,7 @@ jobs:
           cp pubspec.yaml android_app/pubspec.yaml
           rm -rf android_app/lib
           cp -R lib android_app/lib
+          if [ -d test ]; then cp -R test android_app/test; fi
           mkdir -p android_app/assets/images
           cp assets/images/musify_logo.jpg android_app/assets/images/musify_logo.jpg
           grep -q "assets/images/musify_logo.jpg" android_app/lib/main.dart
@@ -64,6 +67,14 @@ jobs:
       - name: Resolve dependencies
         working-directory: android_app
         run: flutter pub get
+
+      - name: Analyze Dart and Flutter source
+        working-directory: android_app
+        run: flutter analyze --no-pub
+
+      - name: Run automated tests
+        working-directory: android_app
+        run: flutter test --no-pub
 
       - name: Patch Android 13+ media notification stop action
         working-directory: android_app
