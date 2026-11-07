@@ -256,7 +256,7 @@ class _LibrarySkeleton extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: total == 0 ? null : (completed / total).clamp(0.0, 1.0),
+              value: total == 0 ? null : (completed / total).clamp(0.0, 1.0).toDouble(),
               minHeight: 4,
               backgroundColor: _surface2,
               color: _green,
@@ -451,6 +451,20 @@ class _LibraryPageState extends State<LibraryPage> {
           _artworkRequested.contains(track.id) ||
           _artworkQueue.any((queued) => queued.id == track.id)) continue;
       _artworkQueue.add(track);
+    }
+    _pumpArtworkQueue();
+  }
+
+  void _prioritizeArtwork(Track track) {
+    if (!track.name.toLowerCase().endsWith('.flac') ||
+        _artworkChecked.contains(track.id) ||
+        _artworkRequested.contains(track.id)) return;
+    final queuedIndex = _artworkQueue.indexWhere((item) => item.id == track.id);
+    if (queuedIndex > 0) {
+      final queued = _artworkQueue.removeAt(queuedIndex);
+      _artworkQueue.insert(0, queued);
+    } else if (queuedIndex < 0) {
+      _artworkQueue.insert(0, track);
     }
     _pumpArtworkQueue();
   }
@@ -684,6 +698,7 @@ class _LibraryPageState extends State<LibraryPage> {
           const SizedBox(height:8),
           Expanded(child:visible.isEmpty?const Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(padding:const EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
             final track=visible[i]; final originalIndex=trackIndices[track.id] ?? -1; final active=_currentIndex==originalIndex;
+            _prioritizeArtwork(track);
             final details=[_artist(track.name),if(_size(track.size).isNotEmpty)_size(track.size)].join('  •  ');
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
