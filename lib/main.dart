@@ -113,7 +113,7 @@ class KDriveService {
   Uri _shareRootUri() => Uri.https('kdrive.infomaniak.com', '/2/app/$_driveId/share/$_shareToken/files');
   Uri _folderFilesUri(String folderId, {String? cursor, int? page}) => Uri.https(
     'kdrive.infomaniak.com', '/2/app/$_driveId/share/$_shareToken/files/$folderId/files',
-    {if (cursor != null) 'cursor': cursor, if (page != null) 'page': '$page'},
+    {if (cursor != null) 'cursor': cursor, if (page != null) 'page': '$page', 'per_page': '100'},
   );
   Future<dynamic> _getJson(Uri uri) async {
     final response = await _client.get(uri, headers: const {'Accept': 'application/json'}).timeout(const Duration(seconds: 25));
