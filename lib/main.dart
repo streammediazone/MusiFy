@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -328,6 +329,7 @@ class _LibraryPageState extends State<LibraryPage> {
   late final AudioPlayer _player;
   List<Track>? _loadedTracks;
   ConcatenatingAudioSource? _playlistSource;
+  Future<void> _playlistMutation = Future<void>.value();
   int _initialArtworkCompleted = 0;
   int _initialArtworkTotal = 100;
   int _initialArtworkFailures = 0;
@@ -408,26 +410,35 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _appendTracksToPlaylist(List<Track> tracks) async {
-    final source = _playlistSource;
-    if (!_playlistReady || source == null || tracks.isEmpty) return;
-    // The library is alphabetically ordered. Insert newly discovered tracks
-    // at their final position so the playback queue keeps the same order.
-    for (var index = 0; index < tracks.length; index++) {
-      final track = tracks[index];
-      if (index < _playlistTrackIds.length && _playlistTrackIds[index] == track.id) {
-        continue;
+    if (tracks.isEmpty) return;
+    final previousMutation = _playlistMutation;
+    final gate = Completer<void>();
+    _playlistMutation = gate.future;
+    await previousMutation;
+    try {
+      final source = _playlistSource;
+      if (!_playlistReady || source == null) return;
+      // The library is alphabetically ordered. Insert newly discovered tracks
+      // at their final position so the playback queue keeps the same order.
+      for (var index = 0; index < tracks.length; index++) {
+        final track = tracks[index];
+        if (index < _playlistTrackIds.length && _playlistTrackIds[index] == track.id) {
+          continue;
+        }
+        if (_playlistTrackIds.contains(track.id)) {
+          continue;
+        }
+        _playlistTrackIds.insert(index, track.id);
+        try {
+          await source.insert(index, _audioSourceFor(track));
+        } catch (_) {
+          _playlistTrackIds.removeAt(index);
+          // A library update must never interrupt current playback.
+          break;
+        }
       }
-      if (_playlistTrackIds.contains(track.id)) {
-        continue;
-      }
-      _playlistTrackIds.insert(index, track.id);
-      try {
-        await source.insert(index, _audioSourceFor(track));
-      } catch (_) {
-        _playlistTrackIds.removeAt(index);
-        // A library update must never interrupt current playback.
-        break;
-      }
+    } finally {
+      gate.complete();
     }
   }
 
