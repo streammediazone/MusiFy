@@ -139,6 +139,8 @@ class KDriveService {
       final logs = <String>[];
       final cursors = <String>{};
       final excludedSamples = <String>[];
+      final pageDiagnostics = <String>[];
+      final seenPageAudioIds = <String>{};
       var pageCount = 0;
       var listedItems = 0;
       var fileItems = 0;
@@ -148,11 +150,14 @@ class KDriveService {
       String? cursor;
       var pageNumber = 1;
       for (var page = 0; page < 100; page++) {
+        final requestMode = cursor == null ? 'page=$pageNumber' : 'cursor (${cursor.length} znakov)';
         final response = await _getJson(_folderFilesUri(folderId, cursor: cursor, page: cursor == null ? pageNumber : null));
         final pageData = _parsePage(response);
         pageCount++;
         listedItems += pageData.items.length;
         lastHasMore = pageData.hasMore;
+        final pageAudioIds = <String>[];
+        final pageRepeatedIds = <String>[];
         for (final item in pageData.items) {
           final type = (item['type'] ?? '').toString();
           final id = (item['id'] ?? '').toString();
@@ -165,11 +170,17 @@ class KDriveService {
           if (audio && track.id.isNotEmpty) {
             audioItems++;
             folderTracks.add(track);
+            pageAudioIds.add(track.id);
+            if (!seenPageAudioIds.add(track.id)) pageRepeatedIds.add(track.id);
             trackSourcePages.putIfAbsent(track.id, () => <String>[]).add('$folderId / strana $pageCount');
           } else if (excludedSamples.length < 8) {
             excludedSamples.add('${track.name} [${track.mimeType.isEmpty ? 'bez MIME' : track.mimeType}]');
           }
         }
+        final firstIds = pageAudioIds.take(5).join(',');
+        final lastIds = pageAudioIds.length <= 5 ? '' : pageAudioIds.skip(pageAudioIds.length - 5).join(',');
+        final overlap = pageRepeatedIds.take(12).join(',');
+        pageDiagnostics.add('Strana $pageCount: request=$requestMode, položiek=${pageData.items.length}, audio=${pageAudioIds.length}, prvé ID=[$firstIds], posledné ID=[$lastIds], opakovanie z predošlých strán=${pageRepeatedIds.length}${overlap.isEmpty ? '' : ' [$overlap]'}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null || pageData.cursor!.isEmpty ? 'nie' : 'áno (${pageData.cursor!.length} znakov)'}, ${pageData.responseKeys}');
         if (!pageData.hasMore) break;
         if (page == 99) hitPageLimit = true;
         final next = pageData.cursor;
@@ -179,6 +190,7 @@ class KDriveService {
         } else { pageNumber++; }
       }
       logs.add('Priečinok $folderId: stránok=$pageCount, položiek=$listedItems, súborov=$fileItems, rozpoznané audio=$audioItems, podpriečinky=${childFolders.length}, posledné has_more=$lastHasMore, limit 100 strán=${hitPageLimit ? 'ÁNO' : 'nie'}');
+      logs.addAll(pageDiagnostics);
       if (excludedSamples.isNotEmpty) logs.add('Vynechané súbory (ukážka): ${excludedSamples.join(' | ')}');
       return (tracks: folderTracks, folders: childFolders, logs: logs);
     }
