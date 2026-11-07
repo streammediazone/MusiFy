@@ -447,7 +447,9 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       if (_artworkChecked.contains(track.id) ||
           _artworkRequested.contains(track.id) ||
-          _artworkQueue.any((queued) => queued.id == track.id)) continue;
+          _artworkQueue.any((queued) => queued.id == track.id)) {
+        continue;
+      }
       _artworkQueue.add(track);
     }
     _pumpArtworkQueue();
