@@ -393,6 +393,7 @@ class _LibraryPageState extends State<LibraryPage> {
   );
 
   Future<void> _handleInitialBatchReady(List<Track> tracks) async {
+    if (!mounted) return;
     _initialArtworkTotal = tracks.length;
     _initialArtworkCompleted = 0;
     _initialPageArtworkIds
@@ -413,6 +414,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _handleLibraryProgress(List<Track> tracks) async {
+    if (!mounted) return;
     _loadedTracks = tracks;
     if (mounted) {
       _tracksListenable.value = tracks;
