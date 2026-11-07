@@ -97,7 +97,6 @@ class Track {
   const Track({required this.id, required this.name, required this.size, required this.mimeType});
   final String id, name, mimeType;
   final int size;
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'size': size, 'mime_type': mimeType};
   factory Track.fromJson(Map<String, dynamic> json) => Track(
     id: (json['id'] ?? json['file_id'] ?? '').toString(),
     name: (json['name'] ?? json['filename'] ?? 'Neznáma skladba').toString(),
@@ -121,7 +120,7 @@ class KDriveService {
     if (response.statusCode != 200) throw Exception('kDrive odpovedal HTTP ${response.statusCode} pri načítaní obsahu.');
     return jsonDecode(utf8.decode(response.bodyBytes));
   }
-  Future<LibraryResult> loadAudioTracks({void Function(List<Track>)? onProgress}) async {
+  Future<LibraryResult> loadAudioTracks() async {
     final root = await _getJson(_shareRootUri());
     if (root is! Map || root['data'] is! Map) throw FormatException('kDrive neposkytol metadáta zdieľaného priečinka.');
     final rootData = Map<String, dynamic>.from(root['data'] as Map);
@@ -143,6 +142,7 @@ class KDriveService {
       final excludedSamples = <String>[];
       final pageDiagnostics = <String>[];
       final seenPageAudioIds = <String>{};
+      final requestedPageAudioIds = <int, List<String>>{};
       var pageCount = 0;
       var listedItems = 0;
       var fileItems = 0;
@@ -187,13 +187,9 @@ class KDriveService {
         }
         final firstIds = pageAudioIds.take(5).join(',');
         final lastIds = pageAudioIds.length <= 5 ? '' : pageAudioIds.skip(pageAudioIds.length - 5).join(',');
+        if (cursor == null) requestedPageAudioIds[pageNumber] = List<String>.from(pageAudioIds);
         final overlap = pageRepeatedIds.take(12).join(',');
         pageDiagnostics.add('Strana $pageCount: request=$requestMode, položiek=${pageData.items.length}, audio=${pageAudioIds.length}, prvé ID=[$firstIds], posledné ID=[$lastIds], opakovanie z predošlých strán=${pageRepeatedIds.length}${overlap.isEmpty ? '' : ' [$overlap]'}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null || pageData.cursor!.isEmpty ? 'nie' : 'áno (${pageData.cursor!.length} znakov)'}, ${pageData.responseKeys}');
-        if (onProgress != null) {
-          final partial = <String, Track>{for (final track in [...tracks, ...folderTracks]) track.id: track};
-          final partialTracks = partial.values.toList()..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-          onProgress(partialTracks);
-        }
         if (!pageData.hasMore) break;
         if (page == 99) hitPageLimit = true;
         final next = pageData.cursor;
@@ -201,6 +197,28 @@ class KDriveService {
           if (!cursors.add(next)) throw Exception('kDrive opakovane vrátil rovnaký kurzor.');
           cursor = next;
         } else { pageNumber++; }
+      }
+      // Re-request representative pages to detect unstable ordering or page-index behavior.
+      for (final samplePage in const [1, 14, 19]) {
+        if (!requestedPageAudioIds.containsKey(samplePage)) continue;
+        try {
+          final repeatResponse = await _getJson(_folderFilesUri(folderId, page: samplePage));
+          final repeatData = _parsePage(repeatResponse);
+          final repeatIds = <String>[];
+          for (final item in repeatData.items) {
+            final type = (item['type'] ?? '').toString();
+            final id = (item['id'] ?? '').toString();
+            if (type != 'file' || id.isEmpty) continue;
+            final track = Track.fromJson(item);
+            final name = track.name.toLowerCase();
+            final audio = track.mimeType.startsWith('audio/') || const ['.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma'].any(name.endsWith);
+            if (audio) repeatIds.add(track.id);
+          }
+          final originalIds = requestedPageAudioIds[samplePage]!;
+          pageDiagnostics.add('OPAKOVANÁ KONTROLA page=$samplePage: rovnaké_poradie=${listEquals(originalIds, repeatIds)}, pôvodné=${originalIds.join(',')}, opakované=${repeatIds.join(',')}, ${repeatData.responseKeys}');
+        } catch (error) {
+          pageDiagnostics.add('OPAKOVANÁ KONTROLA page=$samplePage: CHYBA=$error');
+        }
       }
       logs.add('Priečinok $folderId: stránok=$pageCount, položiek=$listedItems, súborov=$fileItems, rozpoznané audio=$audioItems, podpriečinky=${childFolders.length}, posledné has_more=$lastHasMore, limit 100 strán=${hitPageLimit ? 'ÁNO' : 'nie'}');
       logs.addAll(pageDiagnostics);
@@ -286,8 +304,7 @@ class _LibraryPageState extends State<LibraryPage> {
   List<String> _playlistTrackIds = <String>[];
   final ValueNotifier<Map<String, Uint8List>> _artwork = ValueNotifier(<String, Uint8List>{});
   final Set<String> _artworkRequested = <String>{};
-  final List<Track> _artworkQueue = <Track>[];
-  int _artworkActive = 0;
+  bool _artworkPrefetchStarted = false;
   Directory? _artworkCacheDirectory;
   final http.Client _artworkClient = http.Client();
   String _filter = 'Všetky';
@@ -295,9 +312,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override void initState() {
     super.initState();
-    _future = _loadLibrary();
+    _future = _service.loadAudioTracks();
     _player = AudioPlayer();
-    _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _queueArtwork(tracks[index]); } });
+    _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
   @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
@@ -311,97 +328,22 @@ class _LibraryPageState extends State<LibraryPage> {
     _playlistTrackIds = <String>[];
     _currentIndex = null;
     _cachedTracks = null;
+    _artworkPrefetchStarted = false;
+    _artworkRequested.clear();
     if (!mounted) return;
-    setState(() => _future = _loadLibrary());
+    setState(() => _future = _service.loadAudioTracks());
   }
 
 
-  Future<File> _libraryCacheFile() async {
-    final directory = await getApplicationSupportDirectory();
-    return File('${directory.path}/musify_library_cache.json');
-  }
-
-  Future<List<Track>?> _readLibraryCache() async {
-    try {
-      final file = await _libraryCacheFile();
-      if (!await file.exists()) return null;
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map || decoded['tracks'] is! List) return null;
-      final tracks = (decoded['tracks'] as List)
-          .whereType<Map>()
-          .map((item) => Track.fromJson(Map<String, dynamic>.from(item)))
-          .where((track) => track.id.isNotEmpty)
-          .toList();
-      if (tracks.isEmpty) return null;
-      final unique = <String, Track>{for (final track in tracks) track.id: track};
-      return unique.values.toList()
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _writeLibraryCache(List<Track> tracks) async {
-    try {
-      final file = await _libraryCacheFile();
-      await file.writeAsString(jsonEncode({
-        'version': 1,
-        'saved_at': DateTime.now().toIso8601String(),
-        'tracks': tracks.map((track) => track.toJson()).toList(),
-      }), flush: false);
-    } catch (_) {
-      // Cache failures must never prevent library loading or playback.
-    }
-  }
-
-  Future<LibraryResult> _loadLibrary() async {
-    final cached = await _readLibraryCache();
-    if (cached != null && mounted) {
-      setState(() => _cachedTracks = cached);
-    }
-    try {
-      final result = await _service.loadAudioTracks(onProgress: (partialTracks) {
-        if (!mounted) return;
-        final merged = <String, Track>{
-          if (_cachedTracks != null) for (final track in _cachedTracks!) track.id: track,
-          for (final track in partialTracks) track.id: track,
-        };
-        final visible = merged.values.toList()
-          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-        setState(() => _cachedTracks = visible);
-      });
-      if (mounted) setState(() => _cachedTracks = result.tracks);
-      await _writeLibraryCache(result.tracks);
-      return result;
-    } catch (error) {
-      if (cached != null) {
-        return LibraryResult(cached, [
-          'Použitá lokálna kópia knižnice; synchronizácia kDrive zlyhala: $error',
-          'Lokálne uložené skladby: ${cached.length}',
-        ]);
-      }
-      if (mounted) setState(() => _cachedTracks = null);
-      rethrow;
-    }
-  }
-
-  void _queueArtwork(Track track) {
-    if (!track.name.toLowerCase().endsWith('.flac') ||
-        _artworkRequested.contains(track.id) ||
-        _artwork.value.containsKey(track.id)) return;
-    _artworkRequested.add(track.id);
-    _artworkQueue.add(track);
-    _pumpArtworkQueue();
-  }
-
-  void _pumpArtworkQueue() {
-    while (mounted && _artworkActive < 3 && _artworkQueue.isNotEmpty) {
-      final track = _artworkQueue.removeAt(0);
-      _artworkActive++;
-      _loadArtwork(track).whenComplete(() {
-        _artworkActive--;
-        if (mounted) _pumpArtworkQueue();
-      });
+  // Warm the local artwork cache after the library has been listed.
+  Future<void> _prefetchArtwork(List<Track> tracks) async {
+    if (_artworkPrefetchStarted) return;
+    _artworkPrefetchStarted = true;
+    const batchSize = 8;
+    for (var start = 0; start < tracks.length; start += batchSize) {
+      if (!mounted) return;
+      final end = (start + batchSize < tracks.length) ? start + batchSize : tracks.length;
+      await Future.wait(tracks.sublist(start, end).map(_loadArtwork));
     }
   }
 
@@ -413,11 +355,11 @@ class _LibraryPageState extends State<LibraryPage> {
   String _artworkCacheName(String id) => base64Url.encode(utf8.encode(id)).replaceAll('=', '');
 
   Future<void> _loadArtwork(Track track) async {
+    if (!track.name.toLowerCase().endsWith('.flac') || _artworkRequested.contains(track.id)) return;
+    _artworkRequested.add(track.id);
     try {
       final directory = await _getArtworkCacheDirectory();
       final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
-      final noArtwork = File('${directory.path}/${_artworkCacheName(track.id)}.none');
-      if (await noArtwork.exists()) return;
       if (await cached.exists()) {
         final data = await cached.readAsBytes();
         if (data.isNotEmpty) {
@@ -444,10 +386,6 @@ class _LibraryPageState extends State<LibraryPage> {
           final parsed = _readFlacPicture(Uint8List.fromList(bytes));
           if (parsed.complete) {
             image = parsed.image;
-            if (image == null || image.isEmpty) {
-              await noArtwork.writeAsString('1', flush: false);
-              return;
-            }
             break;
           }
         }
@@ -478,7 +416,7 @@ class _LibraryPageState extends State<LibraryPage> {
               colors: [[_green, const Color(0xFF1D7043), const Color(0xFF285C70), const Color(0xFF6B3D8E)][index % 4], _surface2]),
           ),
           clipBehavior: Clip.antiAlias,
-          child: bytes != null ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(), cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round())
+          child: bytes != null ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
             : Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)),
         );
       },
@@ -490,7 +428,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final tracks = snapshot.tracks;
     if (index < 0 || index >= tracks.length) return;
     setState(() { _currentIndex = index; _loadingTrack = true; });
-    _queueArtwork(tracks[index]);
+    _loadArtwork(tracks[index]);
     try {
       final latestIds = tracks.map((track) => track.id).toList(growable: false);
       if (!_playlistReady || !listEquals(latestIds, _playlistTrackIds)) {
@@ -550,14 +488,13 @@ class _LibraryPageState extends State<LibraryPage> {
     body: FutureBuilder<LibraryResult>(
       future:_future,
       builder:(context,snapshot) {
-        if(snapshot.connectionState==ConnectionState.waiting && (_cachedTracks == null || _cachedTracks!.isEmpty)) return const _LibrarySkeleton();
-        if(snapshot.hasError && (_cachedTracks == null || _cachedTracks!.isEmpty)) return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
-        final tracks=snapshot.data?.tracks ?? _cachedTracks ?? <Track>[]; _cachedTracks=tracks;
-        final trackIndices = <String, int>{for (var index = 0; index < tracks.length; index++) tracks[index].id: index};
+        if(snapshot.connectionState==ConnectionState.waiting) return const Center(child:Column(mainAxisSize:MainAxisSize.min,children:[CircularProgressIndicator(color:_green),SizedBox(height:16),Text('Načítavam hudobnú knižnicu z kDrive…',style:TextStyle(color:_muted))]));
+        if(snapshot.hasError) return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
+        final tracks=snapshot.data!.tracks; _cachedTracks=tracks; if (!_artworkPrefetchStarted) _prefetchArtwork(tracks);
         final visible=_visible(tracks);
         return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Padding(padding:const EdgeInsets.fromLTRB(20,12,20,14),child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),SizedBox(height:3),Text(snapshot.connectionState==ConnectionState.waiting ? 'Synchronizujem knižnicu…' : (snapshot.hasError || (snapshot.data?.diagnostics.isNotEmpty == true && snapshot.data!.diagnostics.first.startsWith('Použitá lokálna kópia')) ? 'Offline • posledná uložená knižnica' : 'Hudobná knižnica'),style:TextStyle(color:_muted,fontSize:13))])),
+            const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),SizedBox(height:3),Text('Hudobná knižnica',style:TextStyle(color:_muted,fontSize:13))])),
             Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(20)),child:Text('${tracks.length} skladieb',style:const TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
           ])),
           Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFF27332A))),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
@@ -570,8 +507,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ])),
           const SizedBox(height:8),
           Expanded(child:visible.isEmpty?const Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(padding:const EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
-            final track=visible[i]; final originalIndex=trackIndices[track.id] ?? i; final active=_currentIndex==originalIndex;
-            _queueArtwork(track);
+            final track=visible[i]; final originalIndex=tracks.indexOf(track); final active=_currentIndex==originalIndex;
             final details=[_artist(track.name),if(_size(track.size).isNotEmpty)_size(track.size)].join('  •  ');
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
@@ -728,102 +664,6 @@ class _LibraryPageState extends State<LibraryPage> {
       ],
     ),
   ]))));
-}
-
-
-class _LibrarySkeleton extends StatefulWidget {
-  const _LibrarySkeleton({super.key});
-  @override
-  State<_LibrarySkeleton> createState() => _LibrarySkeletonState();
-}
-
-class _LibrarySkeletonState extends State<_LibrarySkeleton> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1150),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Widget _bar(double width, double height) => AnimatedBuilder(
-    animation: _controller,
-    builder: (context, child) => Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: Color.lerp(_surface2, const Color(0xFF344238), _controller.value),
-        borderRadius: BorderRadius.circular(height / 2),
-      ),
-    ),
-  );
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-        child: Row(children: [
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Tvoja hudba', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800, letterSpacing: -.6)),
-            SizedBox(height: 7),
-            Text('Pripravujem hudobnú knižnicu…', style: TextStyle(color: _muted, fontSize: 13)),
-          ])),
-          _bar(66, 27),
-        ]),
-      ),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Container(
-          height: 50,
-          decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFF27332A))),
-          child: const Row(children: [
-            SizedBox(width: 14),
-            Icon(Icons.search_rounded, color: _muted),
-            SizedBox(width: 12),
-            Text('Hľadať skladbu alebo interpreta…', style: TextStyle(color: _muted, fontSize: 13)),
-          ]),
-        ),
-      ),
-      const SizedBox(height: 13),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(children: [
-          _bar(76, 31),
-          const SizedBox(width: 8),
-          _bar(58, 31),
-          const Spacer(),
-          _bar(86, 34),
-        ]),
-      ),
-      const SizedBox(height: 12),
-      Expanded(
-        child: ListView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
-          itemCount: 9,
-          itemBuilder: (context, index) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
-              child: Row(children: [
-                _bar(49, 49),
-                const SizedBox(width: 12),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _bar(150 + (index % 3) * 32, 12),
-                  const SizedBox(height: 9),
-                  _bar(92 + (index % 4) * 18, 9),
-                ])),
-              ]),
-            ),
-          ),
-        ),
-      ),
-    ],
-  );
 }
 
 class _FullPlayer extends StatelessWidget {
