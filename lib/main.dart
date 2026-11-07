@@ -369,6 +369,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
   Future<void> _reload() async {
     await _player.stop();
+    if (!mounted) return;
     _playlistReady = false;
     _playlistTrackIds = <String>[];
     _currentIndex = null;
@@ -405,14 +406,18 @@ class _LibraryPageState extends State<LibraryPage> {
       if (mounted) setState(() {});
     });
     _loadedTracks = tracks;
-    _tracksListenable.value = tracks;
-    if (mounted) setState(() {});
+    if (mounted) {
+      _tracksListenable.value = tracks;
+      setState(() {});
+    }
   }
 
   Future<void> _handleLibraryProgress(List<Track> tracks) async {
     _loadedTracks = tracks;
-    _tracksListenable.value = tracks;
-    if (mounted) setState(() {});
+    if (mounted) {
+      _tracksListenable.value = tracks;
+      setState(() {});
+    }
     await _appendTracksToPlaylist(tracks);
   }
 
