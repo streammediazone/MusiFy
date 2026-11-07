@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_service/audio_service.dart';
+import 'services/flac_picture_parser.dart';
 
 const _bg = Color(0xFF090D0B);
 const _surface = Color(0xFF151B17);
@@ -46,56 +47,6 @@ class MusiFyApp extends StatelessWidget {
 }
 
 
-class _FlacPictureResult {
-  const _FlacPictureResult(this.complete, this.image);
-  final bool complete;
-  final Uint8List? image;
-}
-
-/// Reads FLAC metadata blocks only. The HTTP stream is cancelled as soon as
-/// the last metadata block has arrived, so audio frames are not downloaded.
-_FlacPictureResult _readFlacPicture(List<int> bytes) {
-  if (bytes.length < 4) return const _FlacPictureResult(false, null);
-  if (bytes[0] != 0x66 || bytes[1] != 0x4C || bytes[2] != 0x61 || bytes[3] != 0x43) {
-    return const _FlacPictureResult(true, null);
-  }
-  var offset = 4;
-  while (true) {
-    if (bytes.length < offset + 4) return const _FlacPictureResult(false, null);
-    final header = bytes[offset];
-    final type = header & 0x7F;
-    final last = (header & 0x80) != 0;
-    final length = (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
-    final end = offset + 4 + length;
-    if (bytes.length < end) return const _FlacPictureResult(false, null);
-    if (type == 6) {
-      var p = offset + 4;
-      int read32() {
-        if (p + 4 > end) throw const FormatException('Neúplný FLAC PICTURE blok.');
-        final value = (bytes[p] << 24) | (bytes[p + 1] << 16) | (bytes[p + 2] << 8) | bytes[p + 3];
-        p += 4;
-        return value;
-      }
-      try {
-        read32(); // picture type
-        final mimeLength = read32();
-        if (mimeLength < 0 || p + mimeLength > end) throw const FormatException('Neplatná MIME dĺžka.');
-        p += mimeLength;
-        final descriptionLength = read32();
-        if (descriptionLength < 0 || p + descriptionLength > end) throw const FormatException('Neplatná dĺžka popisu.');
-        p += descriptionLength;
-        read32(); read32(); read32(); read32(); // dimensions, depth, indexed colors
-        final imageLength = read32();
-        if (imageLength <= 0 || p + imageLength > end) return _FlacPictureResult(last, null);
-        return _FlacPictureResult(true, Uint8List.fromList(bytes.sublist(p, p + imageLength)));
-      } catch (_) {
-        return _FlacPictureResult(last, null);
-      }
-    }
-    offset = end;
-    if (last) return const _FlacPictureResult(true, null);
-  }
-}
 
 class Track {
   const Track({required this.id, required this.name, required this.size, required this.mimeType});
@@ -563,7 +514,7 @@ class _LibraryPageState extends State<LibraryPage> {
               if (bytes.length > 8 * 1024 * 1024) {
                 throw const FormatException('FLAC metadáta prekročili limit 8 MB.');
               }
-              final parsed = _readFlacPicture(bytes);
+              final parsed = readFlacPicture(bytes);
               if (parsed.complete) {
                 metadataComplete = true;
                 image = parsed.image;
