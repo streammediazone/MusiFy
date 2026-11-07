@@ -151,7 +151,10 @@ class KDriveService {
         if (!initialBatchPublished && allUniqueTracks.length >= 100) {
           initialBatchPublished = true;
           final initialTracks = allUniqueTracks.values.take(100).toList()
-            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+            ..sort((a, b) {
+              final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+              return byName != 0 ? byName : a.id.compareTo(b.id);
+            });
           await onInitialBatchReady?.call(initialTracks);
           initialBatchReady = true;
         } else if (initialBatchPublished && initialBatchReady) {
@@ -391,7 +394,7 @@ class _LibraryPageState extends State<LibraryPage> {
     if (mounted) setState(() {});
     if (added.isNotEmpty) {
       _enqueueArtwork(added);
-      await _appendTracksToPlaylist(added);
+      await _appendTracksToPlaylist(tracks);
     }
   }
 
@@ -658,7 +661,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final q = _search.text.trim().toLowerCase();
     var result = tracks.where((t) => q.isEmpty || t.name.toLowerCase().contains(q)).toList();
     if (_sort == 'Interpret') result.sort((a,b) => _artist(a.name).compareTo(_artist(b.name)));
-    if (_sort == 'Názov') result.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (_sort == 'Názov') result.sort((a,b) { final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase()); return byName != 0 ? byName : a.id.compareTo(b.id); });
     if (_sort == 'Názov Z–A') result.sort((a,b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
     return result;
   }
