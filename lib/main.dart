@@ -800,9 +800,9 @@ class _LibraryPageState extends State<LibraryPage> {
       title: const Text('Diagnostika prehrávania'),
       children: [
         StreamBuilder<MediaItem?>(
-          stream: AudioService.currentMediaItemStream,
+          stream: AudioService.handler.mediaItem,
           builder: (context, mediaSnapshot) => StreamBuilder<PlaybackState>(
-            stream: AudioService.playbackStateStream,
+            stream: AudioService.handler.playbackState,
             builder: (context, stateSnapshot) {
               final media = mediaSnapshot.data;
               final state = stateSnapshot.data;
