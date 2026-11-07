@@ -120,13 +120,18 @@ class KDriveService {
     if (response.statusCode != 200) throw Exception('kDrive odpovedal HTTP ${response.statusCode} pri načítaní obsahu.');
     return jsonDecode(utf8.decode(response.bodyBytes));
   }
-  Future<LibraryResult> loadAudioTracks() async {
+  Future<LibraryResult> loadAudioTracks({
+    Future<void> Function(List<Track>)? onInitialBatchReady,
+    Future<void> Function(List<Track>)? onProgress,
+  }) async {
     final root = await _getJson(_shareRootUri());
     if (root is! Map || root['data'] is! Map) throw FormatException('kDrive neposkytol metadáta zdieľaného priečinka.');
     final rootData = Map<String, dynamic>.from(root['data'] as Map);
     final rootId = (rootData['id'] ?? '').toString();
     if (rootId.isEmpty || rootData['type'] != 'dir') throw FormatException('Zdieľaný odkaz nevrátil priečinok. ID: $rootId, typ: ${rootData['type']}.');
     final tracks = <Track>[];
+    final allUniqueTracks = <String, Track>{};
+    var initialBatchPublished = false;
     final trackSourcePages = <String, List<String>>{};
     final itemDiagnosticMetadata = <String, String>{};
     var pendingFolders = <String>[rootId];
@@ -172,6 +177,7 @@ class KDriveService {
           if (audio && track.id.isNotEmpty) {
             audioItems++;
             folderTracks.add(track);
+            allUniqueTracks.putIfAbsent(track.id, () => track);
             pageAudioIds.add(track.id);
             final metadataKeys = const ['etag', 'size', 'created_at', 'updated_at', 'modified_at', 'mtime', 'last_modified', 'checksum', 'hash', 'parent_id'];
             final metadata = <String, dynamic>{};
@@ -190,6 +196,12 @@ class KDriveService {
         if (cursor == null) requestedPageAudioIds[pageNumber] = List<String>.from(pageAudioIds);
         final overlap = pageRepeatedIds.take(12).join(',');
         pageDiagnostics.add('Strana $pageCount: request=$requestMode, položiek=${pageData.items.length}, audio=${pageAudioIds.length}, prvé ID=[$firstIds], posledné ID=[$lastIds], opakovanie z predošlých strán=${pageRepeatedIds.length}${overlap.isEmpty ? '' : ' [$overlap]'}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null || pageData.cursor!.isEmpty ? 'nie' : 'áno (${pageData.cursor!.length} znakov)'}, ${pageData.responseKeys}');
+        if (!initialBatchPublished && allUniqueTracks.length >= 100) {
+          initialBatchPublished = true;
+          await onInitialBatchReady?.call(allUniqueTracks.values.take(100).toList(growable: false));
+        } else if (initialBatchPublished) {
+          await onProgress?.call(allUniqueTracks.values.toList(growable: false));
+        }
         if (!pageData.hasMore) break;
         if (page == 99) hitPageLimit = true;
         final next = pageData.cursor;
@@ -197,28 +209,6 @@ class KDriveService {
           if (!cursors.add(next)) throw Exception('kDrive opakovane vrátil rovnaký kurzor.');
           cursor = next;
         } else { pageNumber++; }
-      }
-      // Re-request representative pages to detect unstable ordering or page-index behavior.
-      for (final samplePage in const [1, 14, 19]) {
-        if (!requestedPageAudioIds.containsKey(samplePage)) continue;
-        try {
-          final repeatResponse = await _getJson(_folderFilesUri(folderId, page: samplePage));
-          final repeatData = _parsePage(repeatResponse);
-          final repeatIds = <String>[];
-          for (final item in repeatData.items) {
-            final type = (item['type'] ?? '').toString();
-            final id = (item['id'] ?? '').toString();
-            if (type != 'file' || id.isEmpty) continue;
-            final track = Track.fromJson(item);
-            final name = track.name.toLowerCase();
-            final audio = track.mimeType.startsWith('audio/') || const ['.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma'].any(name.endsWith);
-            if (audio) repeatIds.add(track.id);
-          }
-          final originalIds = requestedPageAudioIds[samplePage]!;
-          pageDiagnostics.add('OPAKOVANÁ KONTROLA page=$samplePage: rovnaké_poradie=${listEquals(originalIds, repeatIds)}, pôvodné=${originalIds.join(',')}, opakované=${repeatIds.join(',')}, ${repeatData.responseKeys}');
-        } catch (error) {
-          pageDiagnostics.add('OPAKOVANÁ KONTROLA page=$samplePage: CHYBA=$error');
-        }
       }
       logs.add('Priečinok $folderId: stránok=$pageCount, položiek=$listedItems, súborov=$fileItems, rozpoznané audio=$audioItems, podpriečinky=${childFolders.length}, posledné has_more=$lastHasMore, limit 100 strán=${hitPageLimit ? 'ÁNO' : 'nie'}');
       logs.addAll(pageDiagnostics);
@@ -235,6 +225,10 @@ class KDriveService {
         pendingFolders.addAll(result.folders);
         diagnostics.addAll(result.logs);
       }
+    }
+    if (!initialBatchPublished && allUniqueTracks.isNotEmpty) {
+      initialBatchPublished = true;
+      await onInitialBatchReady?.call(allUniqueTracks.values.take(100).toList(growable: false));
     }
     // Report ID collisions before deduplication so we can distinguish repeated
     // API entries from different files incorrectly sharing the same identifier.
@@ -255,13 +249,8 @@ class KDriveService {
       diagnostics.add('Ďalšie duplicitné ID: ${duplicateGroups.length - 20}');
     }
     // Keep the existing one-entry-per-ID behavior until the collision cause is known.
-    final uniqueTracks = <String, Track>{};
-    for (final track in tracks) { uniqueTracks[track.id] = track; }
-    final orderedTracks = uniqueTracks.values.toList()
-      ..sort((a, b) {
-        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-        return byName != 0 ? byName : a.id.compareTo(b.id);
-      });
+    final uniqueTracks = Map<String, Track>.from(allUniqueTracks);
+    final orderedTracks = uniqueTracks.values.toList(growable: false);
     diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${orderedTracks.length} (unikátne ID)');
     return LibraryResult(orderedTracks, diagnostics);
   }
