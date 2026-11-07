@@ -342,6 +342,7 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _playlistReady = false;
   List<String> _playlistTrackIds = <String>[];
   final Set<String> _artworkHasImage = <String>{};
+  final Set<String> _initialPageArtworkIds = <String>{};
   final Queue<String> _artworkMemoryOrder = Queue<String>();
   static const int _maxArtworkMemoryEntries = 180;
   final Set<String> _artworkRequested = <String>{};
@@ -376,6 +377,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _artworkRequested.clear();
     _artworkChecked.clear();
     _artworkQueue.clear();
+    _initialPageArtworkIds.clear();
     _initialArtworkCompleted = 0;
     if (!mounted) return;
     setState(() => _future = _loadLibrary());
@@ -390,6 +392,9 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _handleInitialBatchReady(List<Track> tracks) async {
     _initialArtworkTotal = tracks.length;
     _initialArtworkCompleted = 0;
+    _initialPageArtworkIds
+      ..clear()
+      ..addAll(tracks.map((track) => track.id));
     _initialArtworkFailures = 0;
     if (mounted) setState(() {});
     await _prefetchArtwork(tracks, onProgress: (done, total) {
@@ -402,14 +407,9 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _handleLibraryProgress(List<Track> tracks) async {
-    final previousIds = _loadedTracks?.map((track) => track.id).toSet() ?? <String>{};
-    final added = tracks.where((track) => !previousIds.contains(track.id)).toList(growable: false);
     _loadedTracks = tracks;
     if (mounted) setState(() {});
-    if (added.isNotEmpty) {
-      _enqueueArtwork(added);
-      await _appendTracksToPlaylist(tracks);
-    }
+    await _appendTracksToPlaylist(tracks);
   }
 
   Future<void> _appendTracksToPlaylist(List<Track> tracks) async {
@@ -478,8 +478,9 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _isCurrentArtwork(String id) {
     final tracks = _loadedTracks ?? _cachedTracks;
     final index = _currentIndex;
-    return tracks != null && index != null && index >= 0 &&
-        index < tracks.length && tracks[index].id == id;
+    return _initialPageArtworkIds.contains(id) ||
+        (tracks != null && index != null && index >= 0 &&
+         index < tracks.length && tracks[index].id == id);
   }
 
   void _touchArtwork(String id) {
@@ -500,22 +501,6 @@ class _LibraryPageState extends State<LibraryPage> {
       final notifier = _trackArtwork[oldest];
       if (notifier != null) notifier.value = null;
     }
-  }
-
-  void _enqueueArtwork(List<Track> tracks) {
-    for (final track in tracks) {
-      if (!track.name.toLowerCase().endsWith('.flac')) {
-        _artworkChecked.add(track.id);
-        continue;
-      }
-      if (_artworkChecked.contains(track.id) ||
-          _artworkRequested.contains(track.id) ||
-          _artworkQueue.any((queued) => queued.id == track.id)) {
-        continue;
-      }
-      _artworkQueue.add(track);
-    }
-    _pumpArtworkQueue();
   }
 
   void _prioritizeArtwork(Track track) {
@@ -791,7 +776,7 @@ class _LibraryPageState extends State<LibraryPage> {
             PopupMenuButton<String>(onSelected:(v)=>setState(()=>_sort=v),itemBuilder:(_)=>const [PopupMenuItem(value:'Názov',child:Text('Názov A–Z')),PopupMenuItem(value:'Názov Z–A',child:Text('Názov Z–A')),PopupMenuItem(value:'Interpret',child:Text('Interpret'))],child:Container(padding:const EdgeInsets.symmetric(horizontal:11,vertical:8),decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(12)),child:Row(children:[const Icon(Icons.sort_rounded,size:17,color:_green),const SizedBox(width:5),Text(_sort,style:const TextStyle(fontSize:12))]))),
           ])),
           const SizedBox(height:8),
-          Expanded(child:visible.isEmpty?const Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(padding:const EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
+          Expanded(child:visible.isEmpty?const Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(cacheExtent:700,padding:const EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
             final track=visible[i]; final originalIndex=trackIndices[track.id] ?? -1; final active=_currentIndex==originalIndex;
             _prioritizeArtwork(track);
             final details=[_artist(track.name),if(_size(track.size).isNotEmpty)_size(track.size)].join('  •  ');
