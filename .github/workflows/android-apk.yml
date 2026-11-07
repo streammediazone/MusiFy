@@ -48,6 +48,7 @@ jobs:
           cp pubspec.yaml android_app/pubspec.yaml
           rm -rf android_app/lib
           cp -R lib android_app/lib
+          rm -rf android_app/test
           if [ -d test ]; then cp -R test android_app/test; fi
           mkdir -p android_app/assets/images
           cp assets/images/musify_logo.jpg android_app/assets/images/musify_logo.jpg
