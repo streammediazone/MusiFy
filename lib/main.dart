@@ -529,6 +529,43 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
       ],
     ),
+    ExpansionTile(
+      leading: const Icon(Icons.library_music_outlined, color: _green),
+      title: const Text('Diagnostika knižnice'),
+      children: [
+        FutureBuilder<LibraryResult>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('Načítavam diagnostiku knižnice…', style: TextStyle(color: _muted)),
+              );
+            }
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText('Chyba načítania: ${snapshot.error}', style: const TextStyle(color: _muted, fontSize: 11)),
+              );
+            }
+            final result = snapshot.data;
+            if (result == null) {
+              return const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('Diagnostické údaje nie sú dostupné.', style: TextStyle(color: _muted)),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: SelectableText(
+                result.diagnostics.join('\\n'),
+                style: const TextStyle(color: _muted, fontSize: 11),
+              ),
+            );
+          },
+        ),
+      ],
+    ),
   ]))));
 }
 
