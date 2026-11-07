@@ -236,9 +236,10 @@ class _Page { const _Page(this.items,this.hasMore,this.cursor,this.responseKeys)
 class LibraryResult { const LibraryResult(this.tracks,this.diagnostics); final List<Track> tracks; final List<String> diagnostics; }
 
 class _LibrarySkeleton extends StatelessWidget {
-  const _LibrarySkeleton({required this.completed, required this.total});
+  const _LibrarySkeleton({required this.completed, required this.total, required this.failures});
   final int completed;
   final int total;
+  final int failures;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -265,7 +266,7 @@ class _LibrarySkeleton extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          Text('Spracované obaly: $completed z $total', style: const TextStyle(color: _muted, fontSize: 11)),
+          Text('Spracované obaly: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}', style: const TextStyle(color: _muted, fontSize: 11)),
         ]),
       ),
       Padding(
@@ -314,6 +315,7 @@ class _LibraryPageState extends State<LibraryPage> {
   ConcatenatingAudioSource? _playlistSource;
   int _initialArtworkCompleted = 0;
   int _initialArtworkTotal = 100;
+  int _initialArtworkFailures = 0;
   final _search = TextEditingController();
   final _searchFocus = FocusNode();
   int? _currentIndex;
@@ -369,6 +371,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _handleInitialBatchReady(List<Track> tracks) async {
     _initialArtworkTotal = tracks.length;
     _initialArtworkCompleted = 0;
+    _initialArtworkFailures = 0;
     if (mounted) setState(() {});
     await _prefetchArtwork(tracks, onProgress: (done, total) {
       _initialArtworkCompleted = done;
@@ -419,6 +422,7 @@ class _LibraryPageState extends State<LibraryPage> {
         final index = next++;
         if (index >= tracks.length) return;
         await _loadArtwork(tracks[index]);
+        if (!_artworkChecked.contains(tracks[index].id)) _initialArtworkFailures++;
         completed++;
         onProgress?.call(completed, tracks.length);
       }
@@ -632,6 +636,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final q = _search.text.trim().toLowerCase();
     var result = tracks.where((t) => q.isEmpty || t.name.toLowerCase().contains(q)).toList();
     if (_sort == 'Interpret') result.sort((a,b) => _artist(a.name).compareTo(_artist(b.name)));
+    if (_sort == 'Názov') result.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     if (_sort == 'Názov Z–A') result.sort((a,b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
     return result;
   }
@@ -656,7 +661,7 @@ class _LibraryPageState extends State<LibraryPage> {
       future:_future,
       builder:(context,snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting && _loadedTracks == null) {
-          return _LibrarySkeleton(completed: _initialArtworkCompleted, total: _initialArtworkTotal);
+          return _LibrarySkeleton(completed: _initialArtworkCompleted, total: _initialArtworkTotal, failures: _initialArtworkFailures);
         }
         if (snapshot.hasError && _loadedTracks == null) {
           return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
@@ -667,7 +672,7 @@ class _LibraryPageState extends State<LibraryPage> {
         final trackIndices = <String, int>{for (var i = 0; i < tracks.length; i++) tracks[i].id: i};
         return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Padding(padding:const EdgeInsets.fromLTRB(20,12,20,14),child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),const SizedBox(height:3),Text(snapshot.connectionState == ConnectionState.waiting ? 'Načítavam ďalšie skladby na pozadí…' : 'Hudobná knižnica',style:const TextStyle(color:_muted,fontSize:13))])),
+            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),const SizedBox(height:3),Text(snapshot.hasError ? 'Synchronizácia zvyšku knižnice zlyhala' : snapshot.connectionState == ConnectionState.waiting ? 'Načítavam ďalšie skladby na pozadí…' : (_initialArtworkFailures > 0 ? 'Niektoré obaly sa nepodarilo načítať' : 'Hudobná knižnica'),style:const TextStyle(color:_muted,fontSize:13))])),
             Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(20)),child:Text('${tracks.length} skladieb',style:const TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
           ])),
           Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFF27332A))),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
@@ -887,7 +892,7 @@ class _FullPlayer extends StatelessWidget {
                       final image = valid ? images[tracks[index].id] : null;
                       return image == null
                         ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
-                        : ClipRRect(borderRadius:BorderRadius.circular(28),child:Image.memory(image,fit:BoxFit.cover,width:double.infinity,height:double.infinity));
+                        : ClipRRect(borderRadius:BorderRadius.circular(28),child:Image.memory(image,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640));
                     },
                   ),
                 ),
