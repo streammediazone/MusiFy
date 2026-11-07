@@ -622,15 +622,24 @@ class _LibraryPageState extends State<LibraryPage> {
               throw HttpException('Artwork HTTP ${response.statusCode}');
             }
             await for (final chunk in response.stream.timeout(const Duration(seconds: 20))) {
-              bytes.addAll(chunk);
-              if (bytes.length > 8 * 1024 * 1024) {
+              const metadataLimit = 8 * 1024 * 1024;
+              final remaining = metadataLimit - bytes.length;
+              if (remaining <= 0) {
                 throw const FormatException('FLAC metadáta prekročili limit 8 MB.');
+              }
+              if (chunk.length > remaining) {
+                bytes.addAll(chunk.take(remaining));
+              } else {
+                bytes.addAll(chunk);
               }
               final parsed = readFlacPicture(bytes);
               if (parsed.complete) {
                 metadataComplete = true;
                 image = parsed.image;
                 break;
+              }
+              if (bytes.length >= metadataLimit) {
+                throw const FormatException('FLAC metadáta prekročili limit 8 MB.');
               }
             }
             if (metadataComplete) break;
