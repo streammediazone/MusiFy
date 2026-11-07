@@ -141,6 +141,8 @@ class KDriveService {
       final excludedSamples = <String>[];
       final pageDiagnostics = <String>[];
       final seenPageAudioIds = <String>{};
+      final requestedPageAudioIds = <int, List<String>>{};
+      final itemDiagnosticMetadata = <String, String>{};
       var pageCount = 0;
       var listedItems = 0;
       var fileItems = 0;
@@ -171,6 +173,12 @@ class KDriveService {
             audioItems++;
             folderTracks.add(track);
             pageAudioIds.add(track.id);
+            final metadataKeys = const ['etag', 'size', 'created_at', 'updated_at', 'modified_at', 'mtime', 'last_modified', 'checksum', 'hash', 'parent_id'];
+            final metadata = <String, dynamic>{};
+            for (final key in metadataKeys) {
+              if (item.containsKey(key) && item[key] != null) metadata[key] = item[key];
+            }
+            itemDiagnosticMetadata[track.id] = metadata.isEmpty ? 'bez známych metadátových polí' : jsonEncode(metadata);
             if (!seenPageAudioIds.add(track.id)) pageRepeatedIds.add(track.id);
             trackSourcePages.putIfAbsent(track.id, () => <String>[]).add('$folderId / strana $pageCount');
           } else if (excludedSamples.length < 8) {
@@ -179,6 +187,7 @@ class KDriveService {
         }
         final firstIds = pageAudioIds.take(5).join(',');
         final lastIds = pageAudioIds.length <= 5 ? '' : pageAudioIds.skip(pageAudioIds.length - 5).join(',');
+        if (cursor == null) requestedPageAudioIds[pageNumber] = List<String>.from(pageAudioIds);
         final overlap = pageRepeatedIds.take(12).join(',');
         pageDiagnostics.add('Strana $pageCount: request=$requestMode, položiek=${pageData.items.length}, audio=${pageAudioIds.length}, prvé ID=[$firstIds], posledné ID=[$lastIds], opakovanie z predošlých strán=${pageRepeatedIds.length}${overlap.isEmpty ? '' : ' [$overlap]'}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null || pageData.cursor!.isEmpty ? 'nie' : 'áno (${pageData.cursor!.length} znakov)'}, ${pageData.responseKeys}');
         if (!pageData.hasMore) break;
@@ -188,6 +197,28 @@ class KDriveService {
           if (!cursors.add(next)) throw Exception('kDrive opakovane vrátil rovnaký kurzor.');
           cursor = next;
         } else { pageNumber++; }
+      }
+      // Re-request representative pages to detect unstable ordering or page-index behavior.
+      for (final samplePage in const [1, 14, 19]) {
+        if (!requestedPageAudioIds.containsKey(samplePage)) continue;
+        try {
+          final repeatResponse = await _getJson(_folderFilesUri(folderId, page: samplePage));
+          final repeatData = _parsePage(repeatResponse);
+          final repeatIds = <String>[];
+          for (final item in repeatData.items) {
+            final type = (item['type'] ?? '').toString();
+            final id = (item['id'] ?? '').toString();
+            if (type != 'file' || id.isEmpty) continue;
+            final track = Track.fromJson(item);
+            final name = track.name.toLowerCase();
+            final audio = track.mimeType.startsWith('audio/') || const ['.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma'].any(name.endsWith);
+            if (audio) repeatIds.add(track.id);
+          }
+          final originalIds = requestedPageAudioIds[samplePage]!;
+          pageDiagnostics.add('OPAKOVANÁ KONTROLA page=$samplePage: rovnaké_poradie=${listEquals(originalIds, repeatIds)}, pôvodné=${originalIds.join(',')}, opakované=${repeatIds.join(',')}, ${repeatData.responseKeys}');
+        } catch (error) {
+          pageDiagnostics.add('OPAKOVANÁ KONTROLA page=$samplePage: CHYBA=$error');
+        }
       }
       logs.add('Priečinok $folderId: stránok=$pageCount, položiek=$listedItems, súborov=$fileItems, rozpoznané audio=$audioItems, podpriečinky=${childFolders.length}, posledné has_more=$lastHasMore, limit 100 strán=${hitPageLimit ? 'ÁNO' : 'nie'}');
       logs.addAll(pageDiagnostics);
@@ -218,7 +249,7 @@ class KDriveService {
     for (final entry in duplicateGroups.take(20)) {
       final names = entry.value.map((track) => track.name).toSet().join(' / ');
       final pages = trackSourcePages[entry.key]?.join(', ') ?? 'neznáma';
-      diagnostics.add('Duplicitné ID ${entry.key} (výskytov ${entry.value.length}, stránky: $pages): $names');
+      diagnostics.add('Duplicitné ID ${entry.key} (výskytov ${entry.value.length}, stránky: $pages): $names; metadáta=${itemDiagnosticMetadata[entry.key] ?? 'nedostupné'}');
     }
     if (duplicateGroups.length > 20) {
       diagnostics.add('Ďalšie duplicitné ID: ${duplicateGroups.length - 20}');
@@ -250,7 +281,7 @@ class KDriveService {
     final perPage = int.tryParse('${root['items_per_page'] ?? data['items_per_page'] ?? pagination['items_per_page'] ?? ''}');
     final more = explicitMore == true || (explicitMore == null && perPage != null && raw.length >= perPage);
     final cursorValue = root['cursor'] ?? root['next_cursor'] ?? root['nextCursor'] ?? data['cursor'] ?? data['next_cursor'] ?? data['nextCursor'] ?? pagination['cursor'] ?? pagination['next_cursor'] ?? pagination['nextCursor'];
-    return _Page(items, more, cursorValue?.toString(), 'kľúče root=${root.keys.join(',')}; data=${data.keys.join(',')}; pagination=${pagination.keys.join(',')}');
+    return _Page(items, more, cursorValue?.toString(), 'server_page=${root['page'] ?? data['page'] ?? pagination['page'] ?? '-'}; items_per_page=${root['items_per_page'] ?? data['items_per_page'] ?? pagination['items_per_page'] ?? '-'}; explicit_has_more=${explicitMore ?? 'nevrátené'}; kľúče root=${root.keys.join(',')}; data=${data.keys.join(',')}; pagination=${pagination.keys.join(',')}');
   }
 }
 class _Page { const _Page(this.items,this.hasMore,this.cursor,this.responseKeys); final List<Map<String,dynamic>> items; final bool hasMore; final String? cursor; final String responseKeys; }
