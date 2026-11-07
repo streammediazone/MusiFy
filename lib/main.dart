@@ -514,7 +514,7 @@ class _LibraryPageState extends State<LibraryPage> {
             if (response.statusCode != 200 && response.statusCode != 206) {
               throw HttpException('Artwork HTTP ${response.statusCode}');
             }
-            await for (final chunk in response.stream) {
+            await for (final chunk in response.stream.timeout(const Duration(seconds: 20))) {
               bytes.addAll(chunk);
               if (bytes.length > 8 * 1024 * 1024) {
                 throw const FormatException('FLAC metadáta prekročili limit 8 MB.');
