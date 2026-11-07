@@ -150,10 +150,14 @@ class KDriveService {
         pageDiagnostics.add('Strana $pageCount: request=$requestMode, položiek=${pageData.items.length}, audio=${pageAudioIds.length}, prvé ID=[$firstIds], posledné ID=[$lastIds], opakovanie z predošlých strán=${pageRepeatedIds.length}${overlap.isEmpty ? '' : ' [$overlap]'}, has_more=${pageData.hasMore}, cursor=${pageData.cursor == null || pageData.cursor!.isEmpty ? 'nie' : 'áno (${pageData.cursor!.length} znakov)'}, ${pageData.responseKeys}');
         if (!initialBatchPublished && allUniqueTracks.length >= 100) {
           initialBatchPublished = true;
-          await onInitialBatchReady?.call(allUniqueTracks.values.take(100).toList(growable: false));
+          final initialTracks = allUniqueTracks.values.take(100).toList()
+            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          await onInitialBatchReady?.call(initialTracks);
           initialBatchReady = true;
         } else if (initialBatchPublished && initialBatchReady) {
-          await onProgress?.call(allUniqueTracks.values.toList(growable: false));
+          final progressTracks = allUniqueTracks.values.toList()
+              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          await onProgress?.call(progressTracks);
         }
         if (!pageData.hasMore) break;
         if (page == 99) hitPageLimit = true;
@@ -181,7 +185,9 @@ class KDriveService {
     }
     if (!initialBatchPublished && allUniqueTracks.isNotEmpty) {
       initialBatchPublished = true;
-      await onInitialBatchReady?.call(allUniqueTracks.values.take(100).toList(growable: false));
+      final initialTracks = allUniqueTracks.values.take(100).toList()
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      await onInitialBatchReady?.call(initialTracks);
       initialBatchReady = true;
     }
     // Report ID collisions before deduplication so we can distinguish repeated
@@ -204,7 +210,8 @@ class KDriveService {
     }
     // Keep the existing one-entry-per-ID behavior until the collision cause is known.
     final uniqueTracks = Map<String, Track>.from(allUniqueTracks);
-    final orderedTracks = uniqueTracks.values.toList(growable: false);
+    final orderedTracks = uniqueTracks.values.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${orderedTracks.length} (unikátne ID)');
     if (initialBatchReady) await onProgress?.call(orderedTracks);
     return LibraryResult(orderedTracks, diagnostics);
@@ -391,17 +398,20 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _appendTracksToPlaylist(List<Track> tracks) async {
     final source = _playlistSource;
     if (!_playlistReady || source == null || tracks.isEmpty) return;
-    final additions = tracks.where((track) => !_playlistTrackIds.contains(track.id)).toList(growable: false);
-    if (additions.isEmpty) return;
-    // Reserve IDs before awaiting so concurrent page callbacks cannot append
-    // the same tracks twice.
-    _playlistTrackIds.addAll(additions.map((track) => track.id));
-    try {
-      await source.addAll(additions.map(_audioSourceFor).toList(growable: false));
-    } catch (_) {
-      final failedIds = additions.map((track) => track.id).toSet();
-      _playlistTrackIds.removeWhere(failedIds.contains);
-      // A library update must never interrupt current playback.
+    // The library is alphabetically ordered. Insert newly discovered tracks
+    // at their final position so the playback queue keeps the same order.
+    for (var index = 0; index < tracks.length; index++) {
+      final track = tracks[index];
+      if (index < _playlistTrackIds.length && _playlistTrackIds[index] == track.id) continue;
+      if (_playlistTrackIds.contains(track.id)) continue;
+      _playlistTrackIds.insert(index, track.id);
+      try {
+        await source.insert(index, _audioSourceFor(track));
+      } catch (_) {
+        _playlistTrackIds.removeAt(index);
+        // A library update must never interrupt current playback.
+        break;
+      }
     }
   }
 
