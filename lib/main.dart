@@ -173,9 +173,16 @@ class KDriveService {
         diagnostics.addAll(result.logs);
       }
     }
-    tracks.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${tracks.length}');
-    return LibraryResult(tracks, diagnostics);
+    // A paginated folder response can repeat an item; keep one entry per kDrive file ID.
+    final uniqueTracks = <String, Track>{};
+    for (final track in tracks) { uniqueTracks[track.id] = track; }
+    final orderedTracks = uniqueTracks.values.toList()
+      ..sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        return byName != 0 ? byName : a.id.compareTo(b.id);
+      });
+    diagnostics.add('Hotovo: priečinkov ${visitedFolders.length}, skladieb ${orderedTracks.length} (unikátne ID)');
+    return LibraryResult(orderedTracks, diagnostics);
   }
   _Page _parsePage(dynamic value) {
     if (value is String) value = jsonDecode(value);
@@ -213,6 +220,7 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _loadingTrack = false;
   List<Track>? _cachedTracks;
   bool _playlistReady = false;
+  List<String> _playlistTrackIds = <String>[];
   final ValueNotifier<Map<String, Uint8List>> _artwork = ValueNotifier(<String, Uint8List>{});
   final Set<String> _artworkRequested = <String>{};
   bool _artworkPrefetchStarted = false;
@@ -233,7 +241,17 @@ class _LibraryPageState extends State<LibraryPage> {
     FocusManager.instance.primaryFocus?.unfocus();
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
   }
-  void _reload() { _artworkPrefetchStarted = false; _artworkRequested.clear(); setState(() => _future = _service.loadAudioTracks()); }
+  Future<void> _reload() async {
+    await _player.stop();
+    _playlistReady = false;
+    _playlistTrackIds = <String>[];
+    _currentIndex = null;
+    _cachedTracks = null;
+    _artworkPrefetchStarted = false;
+    _artworkRequested.clear();
+    if (!mounted) return;
+    setState(() => _future = _service.loadAudioTracks());
+  }
 
 
   // Warm the local artwork cache after the library has been listed.
@@ -331,9 +349,11 @@ class _LibraryPageState extends State<LibraryPage> {
     setState(() { _currentIndex = index; _loadingTrack = true; });
     _loadArtwork(tracks[index]);
     try {
-      if (!_playlistReady) {
+      final latestIds = tracks.map((track) => track.id).toList(growable: false);
+      if (!_playlistReady || !listEquals(latestIds, _playlistTrackIds)) {
         final sources = tracks.map((track) => AudioSource.uri(_service._downloadUri(track.id), tag: MediaItem(id: track.id, title: track.name, album: 'MusiFy'))).toList();
         await _player.setAudioSource(ConcatenatingAudioSource(children: sources), initialIndex: index, initialPosition: Duration.zero);
+        _playlistTrackIds = latestIds;
         _playlistReady = true;
       } else { await _player.seek(Duration.zero, index: index); }
       final playbackFuture = _player.play();
