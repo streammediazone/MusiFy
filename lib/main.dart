@@ -127,6 +127,7 @@ class KDriveService {
     final rootId = (rootData['id'] ?? '').toString();
     if (rootId.isEmpty || rootData['type'] != 'dir') throw FormatException('Zdieľaný odkaz nevrátil priečinok. ID: $rootId, typ: ${rootData['type']}.');
     final tracks = <Track>[];
+    final trackSourcePages = <String, List<String>>{};
     var pendingFolders = <String>[rootId];
     final visitedFolders = <String>{};
     final diagnostics = <String>['Koreň: ID=$rootId, názov=${rootData['name'] ?? '-'}'];
