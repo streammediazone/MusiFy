@@ -449,7 +449,9 @@ class _LibraryPageState extends State<LibraryPage> {
         await _loadArtwork(tracks[index]);
         if (!_artworkChecked.contains(tracks[index].id)) _initialArtworkFailures++;
         completed++;
-        onProgress?.call(completed, tracks.length);
+        if (completed % 5 == 0 || completed == tracks.length) {
+          onProgress?.call(completed, tracks.length);
+        }
       }
     }
     final workers = tracks.length < 6 ? tracks.length : 6;
