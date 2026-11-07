@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -282,7 +281,7 @@ class _LibrarySkeleton extends StatelessWidget {
             child: Container(
               height: 67,
               padding: const EdgeInsets.all(9),
-              decoration: BoxDecoration(color: _surface.withOpacity(.55), borderRadius: BorderRadius.circular(15)),
+              decoration: BoxDecoration(color: _surface.withValues(alpha: .55), borderRadius: BorderRadius.circular(15)),
               child: Row(children: [
                 Container(width: 49, height: 49, decoration: BoxDecoration(color: _surface2, borderRadius: BorderRadius.circular(12))),
                 const SizedBox(width: 12),
@@ -328,7 +327,6 @@ class _LibraryPageState extends State<LibraryPage> {
   int _activeArtworkWorkers = 0;
   Directory? _artworkCacheDirectory;
   final http.Client _artworkClient = http.Client();
-  String _filter = 'Všetky';
   String _sort = 'Názov';
 
   @override void initState() {
@@ -737,7 +735,6 @@ class _LibraryPageState extends State<LibraryPage> {
     final selected=all;
     return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all)return;},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:const Color(0xFF29342C)),padding:const EdgeInsets.symmetric(horizontal:8));
   }
-  Widget _artTile(int index,bool active)=>Container(width:49,height:49,decoration:BoxDecoration(borderRadius:BorderRadius.circular(12),gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[[_green,const Color(0xFF1D7043),const Color(0xFF285C70),const Color(0xFF6B3D8E)][index%4],_surface2])),child:Center(child:Icon(active?Icons.equalizer_rounded:Icons.music_note_rounded,color:active?_green:Colors.white70,size:25)));
   Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(
     margin:const EdgeInsets.fromLTRB(10,0,10,7),
     padding:const EdgeInsets.fromLTRB(14,15,10,14),
@@ -898,7 +895,7 @@ class _FullPlayer extends StatelessWidget {
                   width:MediaQuery.of(context).size.width*.72,
                   height:MediaQuery.of(context).size.width*.72,
                   constraints:const BoxConstraints(maxWidth:320,maxHeight:320),
-                  decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withOpacity(.12),blurRadius:40,spreadRadius:2)]),
+                  decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withValues(alpha: .12),blurRadius:40,spreadRadius:2)]),
                   child:ValueListenableBuilder<Map<String, Uint8List>>(
                     valueListenable: artwork,
                     builder:(context, images, _) {
