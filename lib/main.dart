@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -291,6 +292,10 @@ class _LibraryPageState extends State<LibraryPage> {
   final _service = KDriveService();
   late Future<LibraryResult> _future;
   late final AudioPlayer _player;
+  List<Track>? _loadedTracks;
+  ConcatenatingAudioSource? _playlistSource;
+  int _initialArtworkCompleted = 0;
+  int _initialArtworkTotal = 100;
   final _search = TextEditingController();
   final _searchFocus = FocusNode();
   int? _currentIndex;
@@ -300,7 +305,10 @@ class _LibraryPageState extends State<LibraryPage> {
   List<String> _playlistTrackIds = <String>[];
   final ValueNotifier<Map<String, Uint8List>> _artwork = ValueNotifier(<String, Uint8List>{});
   final Set<String> _artworkRequested = <String>{};
-  bool _artworkPrefetchStarted = false;
+  final Set<String> _artworkChecked = <String>{};
+  final Map<String, ValueNotifier<Uint8List?>> _trackArtwork = <String, ValueNotifier<Uint8List?>>{};
+  final List<Track> _artworkQueue = <Track>[];
+  int _activeArtworkWorkers = 0;
   Directory? _artworkCacheDirectory;
   final http.Client _artworkClient = http.Client();
   String _filter = 'Všetky';
@@ -308,11 +316,11 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override void initState() {
     super.initState();
-    _future = _service.loadAudioTracks();
+    _future = _loadLibrary();
     _player = AudioPlayer();
     _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
-  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
+  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _artwork.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
     _searchFocus.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
@@ -324,78 +332,206 @@ class _LibraryPageState extends State<LibraryPage> {
     _playlistTrackIds = <String>[];
     _currentIndex = null;
     _cachedTracks = null;
-    _artworkPrefetchStarted = false;
+    _loadedTracks = null;
+    _playlistSource = null;
     _artworkRequested.clear();
+    _artworkChecked.clear();
+    _artworkQueue.clear();
+    _initialArtworkCompleted = 0;
     if (!mounted) return;
-    setState(() => _future = _service.loadAudioTracks());
+    setState(() => _future = _loadLibrary());
   }
 
 
-  // Warm the local artwork cache after the library has been listed.
-  Future<void> _prefetchArtwork(List<Track> tracks) async {
-    if (_artworkPrefetchStarted) return;
-    _artworkPrefetchStarted = true;
-    const batchSize = 8;
-    for (var start = 0; start < tracks.length; start += batchSize) {
-      if (!mounted) return;
-      final end = (start + batchSize < tracks.length) ? start + batchSize : tracks.length;
-      await Future.wait(tracks.sublist(start, end).map(_loadArtwork));
+  Future<LibraryResult> _loadLibrary() => _service.loadAudioTracks(
+    onInitialBatchReady: _handleInitialBatchReady,
+    onProgress: _handleLibraryProgress,
+  );
+
+  Future<void> _handleInitialBatchReady(List<Track> tracks) async {
+    _initialArtworkTotal = tracks.length;
+    _initialArtworkCompleted = 0;
+    if (mounted) setState(() {});
+    await _prefetchArtwork(tracks, onProgress: (done, total) {
+      _initialArtworkCompleted = done;
+      _initialArtworkTotal = total;
+      if (mounted) setState(() {});
+    });
+    _loadedTracks = tracks;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _handleLibraryProgress(List<Track> tracks) async {
+    final previousIds = _loadedTracks?.map((track) => track.id).toSet() ?? <String>{};
+    final added = tracks.where((track) => !previousIds.contains(track.id)).toList(growable: false);
+    _loadedTracks = tracks;
+    if (mounted) setState(() {});
+    if (added.isNotEmpty) {
+      _enqueueArtwork(added);
+      await _appendTracksToPlaylist(added);
+    }
+  }
+
+  Future<void> _appendTracksToPlaylist(List<Track> tracks) async {
+    final source = _playlistSource;
+    if (!_playlistReady || source == null || tracks.isEmpty) return;
+    final additions = tracks.where((track) => !_playlistTrackIds.contains(track.id)).toList(growable: false);
+    if (additions.isEmpty) return;
+    try {
+      await source.addAll(additions.map(_audioSourceFor).toList(growable: false));
+      _playlistTrackIds.addAll(additions.map((track) => track.id));
+    } catch (_) {
+      // A library update must never interrupt current playback.
+    }
+  }
+
+  AudioSource _audioSourceFor(Track track) => AudioSource.uri(
+    _service._downloadUri(track.id),
+    tag: MediaItem(id: track.id, title: track.name, album: 'MusiFy'),
+  );
+
+  Future<void> _prefetchArtwork(
+    List<Track> tracks, {
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    var next = 0;
+    var completed = 0;
+    Future<void> worker() async {
+      while (true) {
+        final index = next++;
+        if (index >= tracks.length) return;
+        await _loadArtwork(tracks[index]);
+        completed++;
+        onProgress?.call(completed, tracks.length);
+      }
+    }
+    final workers = tracks.length < 6 ? tracks.length : 6;
+    await Future.wait(List.generate(workers, (_) => worker()));
+  }
+
+  ValueNotifier<Uint8List?> _artworkNotifier(String id) =>
+      _trackArtwork.putIfAbsent(id, () => ValueNotifier<Uint8List?>(_artwork.value[id]));
+
+  void _publishArtwork(String id, Uint8List image) {
+    _artworkNotifier(id).value = image;
+    final updated = Map<String, Uint8List>.from(_artwork.value)..[id] = image;
+    _artwork.value = updated;
+  }
+
+  void _enqueueArtwork(List<Track> tracks) {
+    for (final track in tracks) {
+      if (!track.name.toLowerCase().endsWith('.flac')) {
+        _artworkChecked.add(track.id);
+        continue;
+      }
+      if (_artworkChecked.contains(track.id) ||
+          _artworkRequested.contains(track.id) ||
+          _artworkQueue.any((queued) => queued.id == track.id)) continue;
+      _artworkQueue.add(track);
+    }
+    _pumpArtworkQueue();
+  }
+
+  void _pumpArtworkQueue() {
+    while (_activeArtworkWorkers < 4 && _artworkQueue.isNotEmpty) {
+      final track = _artworkQueue.removeAt(0);
+      _activeArtworkWorkers++;
+      _loadArtwork(track).whenComplete(() {
+        _activeArtworkWorkers--;
+        _pumpArtworkQueue();
+      });
     }
   }
 
   Future<Directory> _getArtworkCacheDirectory() async {
-    return _artworkCacheDirectory ??= Directory('${(await getApplicationSupportDirectory()).path}/artwork')
-      ..createSync(recursive: true);
+    final directory = _artworkCacheDirectory ??=
+        Directory('${(await getApplicationSupportDirectory()).path}/artwork');
+    await directory.create(recursive: true);
+    return directory;
   }
 
-  String _artworkCacheName(String id) => base64Url.encode(utf8.encode(id)).replaceAll('=', '');
+  String _artworkCacheName(String id) =>
+      base64Url.encode(utf8.encode(id)).replaceAll('=', '');
 
   Future<void> _loadArtwork(Track track) async {
-    if (!track.name.toLowerCase().endsWith('.flac') || _artworkRequested.contains(track.id)) return;
-    _artworkRequested.add(track.id);
+    if (!track.name.toLowerCase().endsWith('.flac')) {
+      _artworkChecked.add(track.id);
+      return;
+    }
+    if (_artworkChecked.contains(track.id) || !_artworkRequested.add(track.id)) return;
     try {
-      final directory = await _getArtworkCacheDirectory();
-      final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
-      if (await cached.exists()) {
-        final data = await cached.readAsBytes();
-        if (data.isNotEmpty) {
-          final updated = Map<String, Uint8List>.from(_artwork.value)..[track.id] = data;
-          _artwork.value = updated;
-          return;
-        }
-      }
-
-      // Request progressively larger prefixes. If kDrive supports Range,
-      // only metadata bytes are transferred; otherwise parse its normal stream
-      // and cancel immediately after the PICTURE block.
-      for (final end in [262143, 1048575, 4194303]) {
-        final request = http.Request('GET', _service._downloadUri(track.id));
-        request.headers['Accept'] = 'audio/flac, application/octet-stream, */*';
-        request.headers['Range'] = 'bytes=0-$end';
-        final response = await _artworkClient.send(request).timeout(const Duration(seconds: 30));
-        if (response.statusCode != 200 && response.statusCode != 206) return;
-        final bytes = <int>[];
-        Uint8List? image;
-        await for (final chunk in response.stream) {
-          bytes.addAll(chunk);
-          if (bytes.length > 5 * 1024 * 1024) break;
-          final parsed = _readFlacPicture(Uint8List.fromList(bytes));
-          if (parsed.complete) {
-            image = parsed.image;
-            break;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final directory = await _getArtworkCacheDirectory();
+          final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+          if (await cached.exists()) {
+            try {
+              final data = await cached.readAsBytes();
+              if (data.isNotEmpty) {
+                _artworkChecked.add(track.id);
+                _publishArtwork(track.id, data);
+                return;
+              }
+              await cached.delete();
+            } catch (_) {
+              // A damaged artwork cache entry is disposable; fetch it again.
+            }
           }
-        }
-        if (image != null && image.isNotEmpty) {
-          await cached.writeAsBytes(image, flush: false);
-          final updated = Map<String, Uint8List>.from(_artwork.value)..[track.id] = image;
-          _artwork.value = updated;
+
+          final bytes = <int>[];
+          Uint8List? image;
+          var metadataComplete = false;
+          var start = 0;
+          const rangeEnds = <int>[262143, 1048575, 4194303, 8388607];
+          for (final end in rangeEnds) {
+            final request = http.Request('GET', _service._downloadUri(track.id));
+            request.headers['Accept'] = 'audio/flac, application/octet-stream, */*';
+            request.headers['Range'] = 'bytes=$start-$end';
+            final response = await _artworkClient.send(request).timeout(const Duration(seconds: 25));
+            if (response.statusCode != 200 && response.statusCode != 206) {
+              throw HttpException('Artwork HTTP ${response.statusCode}');
+            }
+            await for (final chunk in response.stream) {
+              bytes.addAll(chunk);
+              if (bytes.length > 8 * 1024 * 1024) {
+                throw const FormatException('FLAC metadáta prekročili limit 8 MB.');
+              }
+              final parsed = _readFlacPicture(bytes);
+              if (parsed.complete) {
+                metadataComplete = true;
+                image = parsed.image;
+                break;
+              }
+            }
+            if (metadataComplete) break;
+            if (response.statusCode == 200) {
+              throw const FormatException('Server ignoroval Range a metadáta sa nepodarilo dokončiť.');
+            }
+            start = end + 1;
+          }
+          if (!metadataComplete) {
+            throw const FormatException('FLAC PICTURE metadáta sa nezmestili do rozsahu 8 MB.');
+          }
+
+          _artworkChecked.add(track.id);
+          if (image != null && image.isNotEmpty) {
+            final target = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+            final temporary = File('${target.path}.tmp');
+            await temporary.writeAsBytes(image, flush: true);
+            if (await target.exists()) await target.delete();
+            await temporary.rename(target.path);
+            _publishArtwork(track.id, image);
+          }
           return;
+        } catch (_) {
+          if (attempt == 1) rethrow;
+          await Future.delayed(Duration(milliseconds: 350 * (attempt + 1)));
         }
-        // A 200 means Range was ignored and the stream ended without a cover.
-        if (response.statusCode == 200) return;
       }
     } catch (_) {
-      // Artwork is optional; playback must continue if metadata/cache fails.
+      // Artwork failures never block library loading or audio playback.
+    } finally {
+      _artworkRequested.remove(track.id);
     }
   }
 
