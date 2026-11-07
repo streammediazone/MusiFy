@@ -263,7 +263,7 @@ class _LibrarySkeleton extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          Text('Spracované obaly: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}', style: const TextStyle(color: _muted, fontSize: 11)),
+          Text("Spracované obaly: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}", style: const TextStyle(color: _muted, fontSize: 11)),
         ]),
       ),
       Padding(
