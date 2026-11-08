@@ -48,14 +48,15 @@ class MusiFyApp extends StatelessWidget {
 
 
 class Track {
-  const Track({required this.id, required this.name, required this.size, required this.mimeType});
-  final String id, name, mimeType;
+  const Track({required this.id, required this.name, required this.size, required this.mimeType, this.revision = ''});
+  final String id, name, mimeType, revision;
   final int size;
   factory Track.fromJson(Map<String, dynamic> json) => Track(
     id: (json['id'] ?? json['file_id'] ?? '').toString(),
     name: (json['name'] ?? json['filename'] ?? 'Neznáma skladba').toString(),
     size: (json['size'] as num?)?.toInt() ?? 0,
     mimeType: (json['mime_type'] ?? '').toString(),
+    revision: (json['etag'] ?? json['updated_at'] ?? json['modified_at'] ?? json['last_modified'] ?? '').toString(),
   );
 }
 
@@ -573,8 +574,8 @@ class _LibraryPageState extends State<LibraryPage> {
     return directory;
   }
 
-  String _artworkCacheName(String id) =>
-      base64Url.encode(utf8.encode(id)).replaceAll('=', '');
+  String _artworkCacheName(Track track) =>
+      base64Url.encode(utf8.encode('${track.id}|${track.size}|${track.revision}')).replaceAll('=', '');
 
   Future<void> _loadArtwork(Track track) async {
     if (!track.name.toLowerCase().endsWith('.flac')) {
@@ -586,7 +587,7 @@ class _LibraryPageState extends State<LibraryPage> {
       if (!_artworkRequested.add(track.id)) return;
       try {
         final directory = await _getArtworkCacheDirectory();
-        final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+        final cached = File('${directory.path}/${_artworkCacheName(track)}.img');
         if (await cached.exists() && await cached.length() > 0) {
           _publishArtwork(track.id, cached);
         } else {
@@ -606,7 +607,14 @@ class _LibraryPageState extends State<LibraryPage> {
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
           final directory = await _getArtworkCacheDirectory();
-          final cached = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+          final cacheName = _artworkCacheName(track);
+          final noArtworkMarker = File('${directory.path}/$cacheName.none');
+          if (await noArtworkMarker.exists()) {
+            _artworkChecked.add(track.id);
+            _artworkHasImage.remove(track.id);
+            return;
+          }
+          final cached = File('${directory.path}/$cacheName.img');
           if (await cached.exists()) {
             try {
               final length = await cached.length();
@@ -666,14 +674,21 @@ class _LibraryPageState extends State<LibraryPage> {
           }
 
           if (image != null && image.isNotEmpty) {
-            final target = File('${directory.path}/${_artworkCacheName(track.id)}.img');
+            final target = File('${directory.path}/${_artworkCacheName(track)}.img');
             final temporary = File('${target.path}.tmp');
             await temporary.writeAsBytes(image, flush: true);
             if (await target.exists()) await target.delete();
             await temporary.rename(target.path);
+            final noArtworkMarker = File('${directory.path}/${_artworkCacheName(track)}.none');
+            if (await noArtworkMarker.exists()) await noArtworkMarker.delete();
             _artworkChecked.add(track.id);
             _publishArtwork(track.id, target);
           } else {
+            final marker = File('${directory.path}/${_artworkCacheName(track)}.none');
+            final temporaryMarker = File('${marker.path}.tmp');
+            await temporaryMarker.writeAsString('no-picture', flush: true);
+            if (await marker.exists()) await marker.delete();
+            await temporaryMarker.rename(marker.path);
             _artworkHasImage.remove(track.id);
             _artworkChecked.add(track.id);
           }
