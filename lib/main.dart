@@ -489,6 +489,7 @@ class _LibraryPageState extends State<LibraryPage> {
     List<Track> tracks, {
     required void Function(int completed, int total) onProgress,
   }) async {
+    if (!mounted) return;
     final pixelSize = (49 * MediaQuery.devicePixelRatioOf(context)).round();
     var next = 0;
     var completed = 0;
@@ -496,6 +497,7 @@ class _LibraryPageState extends State<LibraryPage> {
       while (true) {
         final index = next++;
         if (index >= tracks.length) return;
+        if (!mounted) return;
         final file = _artworkNotifier(tracks[index].id).value;
         if (file != null) {
           var failed = false;
@@ -702,7 +704,8 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           clipBehavior: Clip.antiAlias,
           child: file != null
-              ? Image.file(file, fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: pixelSize, cacheHeight: pixelSize)
+              ? Image.file(file, fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: pixelSize, cacheHeight: pixelSize,
+                  errorBuilder: (context, error, stackTrace) => Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)))
               : Center(child: Icon(Icons.music_note_rounded, color: Colors.white70, size: iconSize)),
         );
       },
@@ -1025,7 +1028,7 @@ class _FullPlayer extends StatelessWidget {
                           ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
                           : ClipRRect(
                               borderRadius:BorderRadius.circular(28),
-                              child:Image.file(imageFile,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640),
+                              child:Image.file(imageFile,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640,errorBuilder:(context,error,stackTrace)=>const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))),
                             ),
                       )
                     : const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
