@@ -22,7 +22,7 @@ class ThemePalette {
   final bool glass;
 }
 
-Map<AppTheme, ThemePalette> _palettes = {
+const Map<AppTheme, ThemePalette> _palettes = {
   AppTheme.original: ThemePalette(background: Color(0xFF090D0B), surface: Color(0xFF151B17), surface2: Color(0xFF1D2620), accent: Color(0xFF70E34B), secondary: Color(0xFF1D7043), muted: Color(0xFF9BA69E), border: Color(0xFF29342C), progressTrack: Color(0xFF38443B), playerGradient: [Color(0xFF244A31), Color(0xFF13251B), Color(0xFF263A2C)], radius: 16, glass: false),
   AppTheme.midnightAmoled: ThemePalette(background: Color(0xFF020608), surface: Color(0xFF071317), surface2: Color(0xFF0D2228), accent: Color(0xFF00E5F0), secondary: Color(0xFF087F91), muted: Color(0xFF91B7BA), border: Color(0xFF14515A), progressTrack: Color(0xFF244047), playerGradient: [Color(0xFF06323A), Color(0xFF02090D), Color(0xFF071B22)], radius: 12, glass: false),
   AppTheme.auroraGlow: ThemePalette(background: Color(0xFF10091D), surface: Color(0xFF20132E), surface2: Color(0xFF342044), accent: Color(0xFFFF8A32), secondary: Color(0xFFCE4FEA), muted: Color(0xFFC2AFCF), border: Color(0xFF694078), progressTrack: Color(0xFF50345E), playerGradient: [Color(0xFF542C78), Color(0xFF19112E), Color(0xFF9A3D55)], radius: 24, glass: false),
@@ -64,8 +64,11 @@ class _MusiFyAppState extends State<MusiFyApp> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString('musify_player_theme');
-      final theme = AppTheme.values.where((value) => value.name == saved).firstOrNull;
-      if (theme != null) appTheme.value = theme;
+      AppTheme? restoredTheme;
+      for (final candidate in AppTheme.values) {
+        if (candidate.name == saved) restoredTheme = candidate;
+      }
+      if (restoredTheme != null) appTheme.value = restoredTheme;
     } catch (_) {
       // Keep the original theme if local preferences cannot be read.
     }
@@ -1014,7 +1017,7 @@ class _LibraryPageState extends State<LibraryPage> {
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
     const Text('VZHĽAD PREHRÁVAČA', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.3)),
     const SizedBox(height: 10),
-    for (final theme in AppTheme.values) _themeOption(context, theme),,
+    for (final theme in AppTheme.values) _themeOption(context, theme),
     ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:Text('Hudobná knižnica'),subtitle:Text('Zdroj: verejný priečinok kDrive')),
     ExpansionTile(
       leading: Icon(Icons.monitor_heart_outlined, color: _green),
