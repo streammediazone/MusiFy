@@ -22,7 +22,7 @@ class ThemePalette {
   final bool glass;
 }
 
-const Map<AppTheme, ThemePalette> _palettes = {
+Map<AppTheme, ThemePalette> _palettes = {
   AppTheme.original: ThemePalette(background: Color(0xFF090D0B), surface: Color(0xFF151B17), surface2: Color(0xFF1D2620), accent: Color(0xFF70E34B), secondary: Color(0xFF1D7043), muted: Color(0xFF9BA69E), border: Color(0xFF29342C), progressTrack: Color(0xFF38443B), playerGradient: [Color(0xFF244A31), Color(0xFF13251B), Color(0xFF263A2C)], radius: 16, glass: false),
   AppTheme.midnightAmoled: ThemePalette(background: Color(0xFF020608), surface: Color(0xFF071317), surface2: Color(0xFF0D2228), accent: Color(0xFF00E5F0), secondary: Color(0xFF087F91), muted: Color(0xFF91B7BA), border: Color(0xFF14515A), progressTrack: Color(0xFF244047), playerGradient: [Color(0xFF06323A), Color(0xFF02090D), Color(0xFF071B22)], radius: 12, glass: false),
   AppTheme.auroraGlow: ThemePalette(background: Color(0xFF10091D), surface: Color(0xFF20132E), surface2: Color(0xFF342044), accent: Color(0xFFFF8A32), secondary: Color(0xFFCE4FEA), muted: Color(0xFFC2AFCF), border: Color(0xFF694078), progressTrack: Color(0xFF50345E), playerGradient: [Color(0xFF542C78), Color(0xFF19112E), Color(0xFF9A3D55)], radius: 24, glass: false),
@@ -329,7 +329,7 @@ class _LibrarySkeleton extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          Text("$stage: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}", style: const TextStyle(color: _muted, fontSize: 11)),
+          Text("$stage: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}", style: TextStyle(color: _muted, fontSize: 11)),
         ]),
       ),
       Padding(
@@ -401,11 +401,13 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override void initState() {
     super.initState();
+    appTheme.addListener(_onThemeChanged);
     _future = _loadLibrary();
     _player = AudioPlayer();
     _player.currentIndexStream.listen((index) { if (mounted && index != null) { setState(() => _currentIndex = index); final tracks = _loadedTracks ?? _cachedTracks; if (tracks != null && index >= 0 && index < tracks.length) _loadArtwork(tracks[index]); } });
   }
-  @override void dispose() { _searchFocus.dispose(); _search.dispose(); _tracksListenable.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
+  void _onThemeChanged() { if (mounted) setState(() {}); }
+  @override void dispose() { appTheme.removeListener(_onThemeChanged); _searchFocus.dispose(); _search.dispose(); _tracksListenable.dispose(); for (final notifier in _trackArtwork.values) { notifier.dispose(); } _artworkClient.close(); _service._client.close(); _player.dispose(); super.dispose(); }
   void _dismissSearchKeyboard() {
     _searchFocus.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
@@ -842,7 +844,7 @@ class _LibraryPageState extends State<LibraryPage> {
         ClipRRect(borderRadius: BorderRadius.circular(9),child: Image.asset('assets/images/musify_logo.jpg',width:46,height:46,fit:BoxFit.contain)),
         const SizedBox(width:11),
         const Text('Musi',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800,letterSpacing:-.7)),
-        const Text('Fy',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800,color:_green,letterSpacing:-.7)),
+        Text('Fy',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800,color:_green,letterSpacing:-.7)),
       ]),
       actions: [
         IconButton(tooltip:'Obnoviť knižnicu',onPressed:_reload,icon:const Icon(Icons.refresh_rounded)),
@@ -857,7 +859,7 @@ class _LibraryPageState extends State<LibraryPage> {
           return _LibrarySkeleton(completed: _initialArtworkCompleted, total: _initialArtworkTotal, failures: _initialArtworkFailures, stage: _initialArtworkStage);
         }
         if (snapshot.hasError && _loadedTracks == null) {
-          return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
+          return Center(child:Padding(padding:EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[Icon(Icons.cloud_off_rounded,size:60,color:_muted),SizedBox(height:16),Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:TextStyle(color:_muted)),SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:Icon(Icons.refresh),label:Text('Skúsiť znova'))])));
         }
         final tracks = snapshot.data?.tracks ?? _loadedTracks ?? const <Track>[];
         _cachedTracks = tracks;
@@ -865,19 +867,19 @@ class _LibraryPageState extends State<LibraryPage> {
         final trackIndices = <String, int>{for (var i = 0; i < tracks.length; i++) tracks[i].id: i};
         return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Padding(padding:const EdgeInsets.fromLTRB(20,12,20,14),child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),const SizedBox(height:3),Text(snapshot.hasError ? 'Synchronizácia zvyšku knižnice zlyhala' : snapshot.connectionState == ConnectionState.waiting ? 'Načítavam ďalšie skladby na pozadí…' : (_initialArtworkFailures > 0 ? 'Niektoré obaly sa nepodarilo načítať' : 'Hudobná knižnica'),style:const TextStyle(color:_muted,fontSize:13))])),
-            Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(_palette.radius * 1.2),border: Border.all(color: _palette.border)),child:Text('${tracks.length} skladieb',style:const TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
+            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),SizedBox(height:3),Text(snapshot.hasError ? 'Synchronizácia zvyšku knižnice zlyhala' : snapshot.connectionState == ConnectionState.waiting ? 'Načítavam ďalšie skladby na pozadí…' : (_initialArtworkFailures > 0 ? 'Niektoré obaly sa nepodarilo načítať' : 'Hudobná knižnica'),style:TextStyle(color:_muted,fontSize:13))])),
+            Container(padding:EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(_palette.radius * 1.2),border: Border.all(color: _palette.border)),child:Text('${tracks.length} skladieb',style:TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
           ])),
-          Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:_palette.border)),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
+          Padding(padding:EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:_palette.border)),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:TextStyle(color:_muted,fontSize:14),prefixIcon:Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:EdgeInsets.symmetric(vertical:14))))),
           const SizedBox(height:13),
           Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Row(children:[
             _filterChip('Všetky',true),
             const SizedBox(width:8),_filterChip('FLAC',false),
             const Spacer(),
-            PopupMenuButton<String>(onSelected:(v)=>setState(()=>_sort=v),itemBuilder:(_)=>const [PopupMenuItem(value:'Názov',child:Text('Názov A–Z')),PopupMenuItem(value:'Názov Z–A',child:Text('Názov Z–A')),PopupMenuItem(value:'Interpret',child:Text('Interpret'))],child:Container(padding:const EdgeInsets.symmetric(horizontal:11,vertical:8),decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(12)),child:Row(children:[const Icon(Icons.sort_rounded,size:17,color:_green),const SizedBox(width:5),Text(_sort,style:const TextStyle(fontSize:12))]))),
+            PopupMenuButton<String>(onSelected:(v)=>setState(()=>_sort=v),itemBuilder:(_)=>[PopupMenuItem(value:'Názov',child:Text('Názov A–Z')),PopupMenuItem(value:'Názov Z–A',child:Text('Názov Z–A')),PopupMenuItem(value:'Interpret',child:Text('Interpret'))],child:Container(padding:EdgeInsets.symmetric(horizontal:11,vertical:8),decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(Icons.sort_rounded,size:17,color:_green),SizedBox(width:5),Text(_sort,style:TextStyle(fontSize:12))]))),
           ])),
           const SizedBox(height:8),
-          Expanded(child:visible.isEmpty?const Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(cacheExtent:700,padding:const EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
+          Expanded(child:visible.isEmpty?Center(child:Text('Žiadne skladby nezodpovedajú vyhľadávaniu.',style:TextStyle(color:_muted))):ListView.builder(cacheExtent:700,padding:EdgeInsets.fromLTRB(12,4,12,14),itemCount:visible.length,itemBuilder:(context,i){
             final track=visible[i]; final originalIndex=trackIndices[track.id] ?? -1; final active=_currentIndex==originalIndex;
             _prioritizeArtwork(track);
             final details=[_artist(track.name),if(_size(track.size).isNotEmpty)_size(track.size)].join('  •  ');
@@ -898,7 +900,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         Text(_title(track.name), maxLines: 1, overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 14, fontWeight: active ? FontWeight.w700 : FontWeight.w500, color: active ? _green : Colors.white)),
                         const SizedBox(height: 4),
-                        Text(details, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _muted, fontSize: 11)),
+                        Text(details, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: _muted, fontSize: 11)),
                       ])),
                       const SizedBox(width: 6),
                       Icon(active ? Icons.graphic_eq_rounded : Icons.more_horiz_rounded, color: active ? _green : _muted, size: 22),
@@ -916,7 +918,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Widget _filterChip(String label,bool all) {
     final selected=all;
-    return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all) { return; }},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:_palette.border),padding:const EdgeInsets.symmetric(horizontal:8));
+    return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all) { return; }},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:_palette.border),padding:EdgeInsets.symmetric(horizontal:8));
   }
   Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(
     margin:const EdgeInsets.fromLTRB(10,0,10,7),
@@ -927,12 +929,12 @@ class _LibraryPageState extends State<LibraryPage> {
         _currentIndex!=null&&_cachedTracks!=null&&_currentIndex!<_cachedTracks!.length?_artworkOrFallback(_cachedTracks![_currentIndex!].id,_currentIndex!,size:59,iconSize:30):const SizedBox(width:59,height:59),const SizedBox(width:12),
         Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text(_currentIndex==null?'':_title(_trackTitle(_currentIndex!)),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w700,fontSize:14)),
-          const SizedBox(height:3),Text(_currentIndex==null?'':'MusiFy  •  FLAC',style:const TextStyle(color:_muted,fontSize:12)),
+          SizedBox(height:3),Text(_currentIndex==null?'':'MusiFy  •  FLAC',style:TextStyle(color:_muted,fontSize:12)),
         ])),
         IconButton(tooltip:'Predchádzajúca skladba',constraints:const BoxConstraints(minWidth:56,minHeight:60),onPressed:_currentIndex==null||_currentIndex!<=0?null:()=>_player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded,size:34)),
         StreamBuilder<PlayerState>(stream:_player.playerStateStream,builder:(context,snapshot){
           final playing=snapshot.data?.playing??false;
-          return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',constraints:const BoxConstraints(minWidth:65,minHeight:65),onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?const SizedBox(width:28,height:28,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:48));
+          return IconButton(tooltip:playing?'Pozastaviť':'Prehrať',constraints:BoxConstraints(minWidth:65,minHeight:65),onPressed:_loadingTrack?null:_togglePlayback,icon:_loadingTrack?SizedBox(width:28,height:28,child:CircularProgressIndicator(strokeWidth:2,color:_green)):Icon(playing?Icons.pause_circle_filled_rounded:Icons.play_circle_fill_rounded,color:_green,size:48));
         }),
         IconButton(tooltip:'Nasledujúca skladba',constraints:const BoxConstraints(minWidth:56,minHeight:60),onPressed:_currentIndex==null?null:()=>_player.seekToNext(),icon:const Icon(Icons.skip_next_rounded,size:34)),
       ]),
@@ -948,7 +950,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _openPlayer() {
     _dismissSearchKeyboard();
-    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracksListenable:_tracksListenable,artworkForTrack:_artworkNotifier));
+    showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>ValueListenableBuilder<AppTheme>(valueListenable:appTheme,builder:(context,theme,_)=>_FullPlayer(player:_player,tracksListenable:_tracksListenable,artworkForTrack:_artworkNotifier)));
   }
   Widget _themeOption(BuildContext context, AppTheme theme) {
     final palette = _palettes[theme]!;
@@ -1008,14 +1010,14 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+  void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
     const Text('VZHĽAD PREHRÁVAČA', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.3)),
     const SizedBox(height: 10),
     for (final theme in AppTheme.values) _themeOption(context, theme),,
-    ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:const Text('Hudobná knižnica'),subtitle:const Text('Zdroj: verejný priečinok kDrive')),
+    ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:Text('Hudobná knižnica'),subtitle:Text('Zdroj: verejný priečinok kDrive')),
     ExpansionTile(
-      leading: const Icon(Icons.monitor_heart_outlined, color: _green),
+      leading: Icon(Icons.monitor_heart_outlined, color: _green),
       title: const Text('Diagnostika prehrávania'),
       children: [
         StreamBuilder<MediaItem?>(
@@ -1034,7 +1036,7 @@ class _LibraryPageState extends State<LibraryPage> {
               ];
               return Padding(
                 padding: const EdgeInsets.all(12),
-                child: SelectableText(lines.join('\\n'), style: const TextStyle(color: _muted, fontSize: 11)),
+                child: SelectableText(lines.join('\\n'), style: TextStyle(color: _muted, fontSize: 11)),
               );
             },
           ),
@@ -1042,7 +1044,7 @@ class _LibraryPageState extends State<LibraryPage> {
       ],
     ),
     ExpansionTile(
-      leading: const Icon(Icons.library_music_outlined, color: _green),
+      leading: Icon(Icons.library_music_outlined, color: _green),
       title: const Text('Diagnostika knižnice'),
       children: [
         FutureBuilder<LibraryResult>(
@@ -1057,7 +1059,7 @@ class _LibraryPageState extends State<LibraryPage> {
             if (snapshot.hasError) {
               return Padding(
                 padding: const EdgeInsets.all(12),
-                child: SelectableText('Chyba načítania: ${snapshot.error}', style: const TextStyle(color: _muted, fontSize: 11)),
+                child: SelectableText('Chyba načítania: ${snapshot.error}', style: TextStyle(color: _muted, fontSize: 11)),
               );
             }
             final result = snapshot.data;
@@ -1088,7 +1090,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       label: const Text('Kopírovať diagnostiku'),
                     ),
                   ),
-                  SelectableText(report, style: const TextStyle(color: _muted, fontSize: 11)),
+                  SelectableText(report, style: TextStyle(color: _muted, fontSize: 11)),
                 ],
               ),
             );
@@ -1134,7 +1136,7 @@ class _FullPlayer extends StatelessWidget {
               return Column(children:[
                 Row(children:[
                   IconButton(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.keyboard_arrow_down_rounded,size:30)),
-                  const Expanded(child:Text('PRÁVE SA PREHRÁVA',textAlign:TextAlign.center,style:TextStyle(color:_muted,fontSize:11,fontWeight:FontWeight.w700,letterSpacing:1.5))),
+                  Expanded(child:Text('PRÁVE SA PREHRÁVA',textAlign:TextAlign.center,style:TextStyle(color:_muted,fontSize:11,fontWeight:FontWeight.w700,letterSpacing:1.5))),
                   IconButton(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.more_horiz_rounded)),
                 ]),
                 const Spacer(),
@@ -1147,18 +1149,18 @@ class _FullPlayer extends StatelessWidget {
                     ? ValueListenableBuilder<File?>(
                         valueListenable: artworkForTrack(tracks[index].id),
                         builder: (context, imageFile, _) => imageFile == null
-                          ? const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
+                          ? Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))
                           : ClipRRect(
                               borderRadius:BorderRadius.circular(28),
-                              child:Image.file(imageFile,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640,errorBuilder:(context,error,stackTrace)=>const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))),
+                              child:Image.file(imageFile,fit:BoxFit.cover,width:double.infinity,height:double.infinity,cacheWidth:640,cacheHeight:640,errorBuilder:(context,error,stackTrace)=>Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green))),
                             ),
                       )
-                    : const Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
+                    : Center(child:Icon(Icons.graphic_eq_rounded,size:112,color:_green)),
                 ),
                 const SizedBox(height:34),
                 Text(_title(name),key:ValueKey('title-$index'),maxLines:2,textAlign:TextAlign.center,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800,letterSpacing:-.4)),
                 const SizedBox(height:7),
-                Text(valid?_artist(name):'',key:ValueKey('artist-$index'),style:const TextStyle(color:_muted,fontSize:14)),
+                Text(valid?_artist(name):'',key:ValueKey('artist-$index'),style:TextStyle(color:_muted,fontSize:14)),
                 const SizedBox(height:25),
                 StreamBuilder<Duration>(stream:player.positionStream,builder:(context,s){
                   final duration=player.duration??Duration.zero;
@@ -1167,8 +1169,8 @@ class _FullPlayer extends StatelessWidget {
                   return Column(children:[
                     Slider(value:pos.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:(v)=>player.seek(Duration(milliseconds:v.round()))),
                     Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[
-                      Text(_time(pos),style:const TextStyle(color:_muted,fontSize:12)),
-                      Text(_time(duration),style:const TextStyle(color:_muted,fontSize:12)),
+                      Text(_time(pos),style:TextStyle(color:_muted,fontSize:12)),
+                      Text(_time(duration),style:TextStyle(color:_muted,fontSize:12)),
                     ]),
                   ]);
                 }),
