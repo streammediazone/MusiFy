@@ -380,6 +380,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _artworkChecked.clear();
     _artworkQueue.clear();
     _initialArtworkCompleted = 0;
+    _initialArtworkStage = 'Sťahujem a kontrolujem obaly';
     if (!mounted) return;
     setState(() => _future = _loadLibrary());
   }
@@ -395,6 +396,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _initialArtworkTotal = tracks.length;
     _initialArtworkCompleted = 0;
     _initialArtworkFailures = 0;
+    _initialArtworkStage = 'Sťahujem a kontrolujem obaly';
     if (mounted) setState(() {});
     await _prefetchArtwork(tracks, onProgress: (done, total) {
       _initialArtworkCompleted = done;
