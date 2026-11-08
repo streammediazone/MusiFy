@@ -6,16 +6,37 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_service/audio_service.dart';
 import 'services/flac_picture_parser.dart';
 
-const _bg = Color(0xFF090D0B);
-const _surface = Color(0xFF151B17);
-const _surface2 = Color(0xFF1D2620);
-const _green = Color(0xFF70E34B);
-const _muted = Color(0xFF9BA69E);
+enum AppTheme { original, midnightAmoled, auroraGlow, crystalDream, goldenHorizon }
+
+class ThemePalette {
+  const ThemePalette({required this.background, required this.surface, required this.surface2, required this.accent, required this.secondary, required this.muted, required this.border, required this.progressTrack, required this.playerGradient, required this.radius, required this.glass});
+  final Color background, surface, surface2, accent, secondary, muted, border, progressTrack;
+  final List<Color> playerGradient;
+  final double radius;
+  final bool glass;
+}
+
+const Map<AppTheme, ThemePalette> _palettes = {
+  AppTheme.original: ThemePalette(background: Color(0xFF090D0B), surface: Color(0xFF151B17), surface2: Color(0xFF1D2620), accent: Color(0xFF70E34B), secondary: Color(0xFF1D7043), muted: Color(0xFF9BA69E), border: Color(0xFF29342C), progressTrack: Color(0xFF38443B), playerGradient: [Color(0xFF244A31), Color(0xFF13251B), Color(0xFF263A2C)], radius: 16, glass: false),
+  AppTheme.midnightAmoled: ThemePalette(background: Color(0xFF020608), surface: Color(0xFF071317), surface2: Color(0xFF0D2228), accent: Color(0xFF00E5F0), secondary: Color(0xFF087F91), muted: Color(0xFF91B7BA), border: Color(0xFF14515A), progressTrack: Color(0xFF244047), playerGradient: [Color(0xFF06323A), Color(0xFF02090D), Color(0xFF071B22)], radius: 12, glass: false),
+  AppTheme.auroraGlow: ThemePalette(background: Color(0xFF10091D), surface: Color(0xFF20132E), surface2: Color(0xFF342044), accent: Color(0xFFFF8A32), secondary: Color(0xFFCE4FEA), muted: Color(0xFFC2AFCF), border: Color(0xFF694078), progressTrack: Color(0xFF50345E), playerGradient: [Color(0xFF542C78), Color(0xFF19112E), Color(0xFF9A3D55)], radius: 24, glass: false),
+  AppTheme.crystalDream: ThemePalette(background: Color(0xFF11172A), surface: Color(0xFF252D48), surface2: Color(0xFF394464), accent: Color(0xFFB69CFF), secondary: Color(0xFF7CBAFF), muted: Color(0xFFD0D7F0), border: Color(0xFF68769F), progressTrack: Color(0xFF536080), playerGradient: [Color(0xFF8D9FCB), Color(0xFF353C61), Color(0xFF6B5A9B)], radius: 30, glass: true),
+  AppTheme.goldenHorizon: ThemePalette(background: Color(0xFF100D08), surface: Color(0xFF201A10), surface2: Color(0xFF302515), accent: Color(0xFFFFC247), secondary: Color(0xFFE59A28), muted: Color(0xFFD4C5A5), border: Color(0xFF725522), progressTrack: Color(0xFF51432A), playerGradient: [Color(0xFF594016), Color(0xFF17120A), Color(0xFF3D2A0E)], radius: 10, glass: false),
+};
+
+final ValueNotifier<AppTheme> appTheme = ValueNotifier<AppTheme>(AppTheme.original);
+ThemePalette get _palette => _palettes[appTheme.value]!;
+Color get _bg => _palette.background;
+Color get _surface => _palette.surface;
+Color get _surface2 => _palette.surface2;
+Color get _green => _palette.accent;
+Color get _muted => _palette.muted;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,21 +48,45 @@ Future<void> main() async {
   runApp(const MusiFyApp());
 }
 
-class MusiFyApp extends StatelessWidget {
+class MusiFyApp extends StatefulWidget {
   const MusiFyApp({super.key});
+  @override State<MusiFyApp> createState() => _MusiFyAppState();
+}
+
+class _MusiFyAppState extends State<MusiFyApp> {
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'MusiFy',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: _bg,
-      colorScheme: ColorScheme.fromSeed(seedColor: _green, brightness: Brightness.dark, surface: _surface),
-      useMaterial3: true,
-      appBarTheme: const AppBarTheme(backgroundColor: _bg, surfaceTintColor: Colors.transparent, elevation: 0),
-      sliderTheme: const SliderThemeData(activeTrackColor: _green, thumbColor: _green, inactiveTrackColor: Color(0xFF38443B), overlayColor: Color(0x2270E34B)),
+  void initState() {
+    super.initState();
+    _restoreTheme();
+  }
+
+  Future<void> _restoreTheme() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('musify_player_theme');
+      final theme = AppTheme.values.where((value) => value.name == saved).firstOrNull;
+      if (theme != null) appTheme.value = theme;
+    } catch (_) {
+      // Keep the original theme if local preferences cannot be read.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<AppTheme>(
+    valueListenable: appTheme,
+    builder: (context, selectedTheme, _) => MaterialApp(
+      title: 'MusiFy',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: _bg,
+        colorScheme: ColorScheme.fromSeed(seedColor: _green, brightness: Brightness.dark, surface: _surface),
+        useMaterial3: true,
+        appBarTheme: AppBarTheme(backgroundColor: _bg, surfaceTintColor: Colors.transparent, elevation: 0),
+        sliderTheme: SliderThemeData(activeTrackColor: _green, thumbColor: _green, inactiveTrackColor: _palette.progressTrack, overlayColor: _green.withValues(alpha: .14)),
+      ),
+      home: const LibraryPage(),
     ),
-    home: const LibraryPage(),
   );
 }
 
@@ -717,7 +762,7 @@ class _LibraryPageState extends State<LibraryPage> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(size * .24),
             gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [[_green, const Color(0xFF1D7043), const Color(0xFF285C70), const Color(0xFF6B3D8E)][index % 4], _surface2]),
+              colors: [[_green, _palette.secondary, _palette.secondary, _palette.secondary][index % 4], _surface2]),
           ),
           clipBehavior: Clip.antiAlias,
           child: file != null
@@ -821,9 +866,9 @@ class _LibraryPageState extends State<LibraryPage> {
         return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Padding(padding:const EdgeInsets.fromLTRB(20,12,20,14),child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
             Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Tvoja hudba',style:TextStyle(fontSize:25,fontWeight:FontWeight.w800,letterSpacing:-.6)),const SizedBox(height:3),Text(snapshot.hasError ? 'Synchronizácia zvyšku knižnice zlyhala' : snapshot.connectionState == ConnectionState.waiting ? 'Načítavam ďalšie skladby na pozadí…' : (_initialArtworkFailures > 0 ? 'Niektoré obaly sa nepodarilo načítať' : 'Hudobná knižnica'),style:const TextStyle(color:_muted,fontSize:13))])),
-            Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(20)),child:Text('${tracks.length} skladieb',style:const TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
+            Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:7),decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(_palette.radius * 1.2),border: Border.all(color: _palette.border)),child:Text('${tracks.length} skladieb',style:const TextStyle(color:_green,fontWeight:FontWeight.w700,fontSize:12))),
           ])),
-          Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFF27332A))),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
+          Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Container(height:50,decoration:BoxDecoration(color:_surface,borderRadius:BorderRadius.circular(16),border:Border.all(color:_palette.border)),child:TextField(controller:_search,focusNode:_searchFocus,textInputAction:TextInputAction.search,onSubmitted:(_)=>_dismissSearchKeyboard(),onTapOutside:(_)=>_dismissSearchKeyboard(),onChanged:(_)=>setState((){}),style:const TextStyle(fontSize:14),decoration:InputDecoration(hintText:'Hľadať skladbu alebo interpreta…',hintStyle:const TextStyle(color:_muted,fontSize:14),prefixIcon:const Icon(Icons.search_rounded,color:_muted),suffixIcon:_search.text.isEmpty?null:IconButton(onPressed:(){_search.clear();setState((){});},icon:const Icon(Icons.close_rounded)),border:InputBorder.none,contentPadding:const EdgeInsets.symmetric(vertical:14))))),
           const SizedBox(height:13),
           Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Row(children:[
             _filterChip('Všetky',true),
@@ -871,12 +916,12 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Widget _filterChip(String label,bool all) {
     final selected=all;
-    return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all) { return; }},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:const Color(0xFF29342C)),padding:const EdgeInsets.symmetric(horizontal:8));
+    return ChoiceChip(label:Text(label),selected:selected,onSelected:(_){if(!all) { return; }},showCheckmark:false,labelStyle:TextStyle(fontSize:12,fontWeight:FontWeight.w700,color:selected?_bg:_muted),selectedColor:_green,backgroundColor:_surface,side:BorderSide(color:selected?_green:_palette.border),padding:const EdgeInsets.symmetric(horizontal:8));
   }
   Widget _miniPlayer()=>SafeArea(top:false,child:GestureDetector(onTap:_openPlayer,child:Container(
     margin:const EdgeInsets.fromLTRB(10,0,10,7),
     padding:const EdgeInsets.fromLTRB(14,15,10,14),
-    decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFF344238))),
+    decoration:BoxDecoration(color:_surface2,borderRadius:BorderRadius.circular(_palette.radius),border:Border.all(color:_palette.border)),
     child:Column(mainAxisSize:MainAxisSize.min,children:[
       Row(crossAxisAlignment:CrossAxisAlignment.center,children:[
         _currentIndex!=null&&_cachedTracks!=null&&_currentIndex!<_cachedTracks!.length?_artworkOrFallback(_cachedTracks![_currentIndex!].id,_currentIndex!,size:59,iconSize:30):const SizedBox(width:59,height:59),const SizedBox(width:12),
@@ -894,7 +939,7 @@ class _LibraryPageState extends State<LibraryPage> {
       StreamBuilder<Duration>(stream:_player.positionStream,builder:(context,s){
         final duration=_player.duration??Duration.zero;final pos=s.data??Duration.zero;
         final value=duration.inMilliseconds==0?0.0:pos.inMilliseconds.clamp(0,duration.inMilliseconds).toDouble()/duration.inMilliseconds;
-        return ClipRRect(borderRadius:BorderRadius.circular(3),child:LinearProgressIndicator(value:value,minHeight:3,backgroundColor:const Color(0xFF3A453D),valueColor:const AlwaysStoppedAnimation(_green)));
+        return ClipRRect(borderRadius:BorderRadius.circular(3),child:LinearProgressIndicator(value:value,minHeight:3,backgroundColor:_palette.progressTrack,valueColor:AlwaysStoppedAnimation(_green)));
       }),
     ]),
   )));
@@ -905,10 +950,70 @@ class _LibraryPageState extends State<LibraryPage> {
     _dismissSearchKeyboard();
     showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:Colors.transparent,builder:(context)=>_FullPlayer(player:_player,tracksListenable:_tracksListenable,artworkForTrack:_artworkNotifier));
   }
+  Widget _themeOption(BuildContext context, AppTheme theme) {
+    final palette = _palettes[theme]!;
+    final selected = appTheme.value == theme;
+    final title = switch (theme) {
+      AppTheme.original => 'Pôvodný MusiFy',
+      AppTheme.midnightAmoled => 'Midnight AMOLED',
+      AppTheme.auroraGlow => 'Aurora Glow',
+      AppTheme.crystalDream => 'Crystal Dream',
+      AppTheme.goldenHorizon => 'Golden Horizon',
+    };
+    final subtitle = switch (theme) {
+      AppTheme.original => 'Pôvodný tmavý vzhľad so zeleným akcentom',
+      AppTheme.midnightAmoled => 'Hlboká čierna a tyrkysové akcenty',
+      AppTheme.auroraGlow => 'Teplé gradienty a farebné vlny',
+      AppTheme.crystalDream => 'Sklenené plochy a levanduľové odtiene',
+      AppTheme.goldenHorizon => 'Čierna, zlato a geometrické detaily',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Material(
+        color: selected ? palette.accent.withValues(alpha: .12) : palette.surface2,
+        borderRadius: BorderRadius.circular(palette.radius),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(palette.radius),
+          onTap: () async {
+            appTheme.value = theme;
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString('musify_player_theme', theme.name);
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tému sa nepodarilo uložiť.')));
+              }
+            }
+            if (context.mounted) Navigator.pop(context);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            child: Row(children: [
+              Container(width: 38, height: 38, decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [palette.accent, palette.secondary]),
+                borderRadius: BorderRadius.circular(palette.glass ? 13 : 9),
+                border: Border.all(color: palette.border),
+              ), child: Icon(theme == AppTheme.crystalDream ? Icons.diamond_rounded : theme == AppTheme.goldenHorizon ? Icons.auto_awesome : theme == AppTheme.auroraGlow ? Icons.waves_rounded : Icons.graphic_eq_rounded, color: palette.background, size: 21)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: TextStyle(color: palette.muted, fontSize: 11)),
+              ])),
+              Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: palette.accent),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showSettings()=>showModalBottomSheet(context:context,backgroundColor:_surface,isScrollControlled:true,showDragHandle:true,builder:(context)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(20,8,20,28),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Nastavenia',style:TextStyle(fontSize:23,fontWeight:FontWeight.w800)),const SizedBox(height:16),
-    const ListTile(leading:Icon(Icons.palette_outlined,color:_green),title:Text('Vzhľad'),subtitle:Text('Tmavý motív • zelená akcentová farba')),
-    const ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:Text('Hudobná knižnica'),subtitle:Text('Zdroj: verejný priečinok kDrive')),
+    const Text('VZHĽAD PREHRÁVAČA', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.3)),
+    const SizedBox(height: 10),
+    for (final theme in AppTheme.values) _themeOption(context, theme),,
+    ListTile(leading:Icon(Icons.cloud_outlined,color:_green),title:const Text('Hudobná knižnica'),subtitle:const Text('Zdroj: verejný priečinok kDrive')),
     ExpansionTile(
       leading: const Icon(Icons.monitor_heart_outlined, color: _green),
       title: const Text('Diagnostika prehrávania'),
@@ -1013,7 +1118,7 @@ class _FullPlayer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height:MediaQuery.of(context).size.height*.88,
-      decoration:const BoxDecoration(color:_surface,borderRadius:BorderRadius.vertical(top:Radius.circular(28))),
+      decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:_palette.playerGradient),borderRadius:BorderRadius.vertical(top:Radius.circular(_palette.glass ? 34 : 28)),border:Border.all(color:_palette.border.withValues(alpha: .8))),
       child:SafeArea(
         child:Padding(
           padding:const EdgeInsets.fromLTRB(22,8,22,20),
@@ -1037,7 +1142,7 @@ class _FullPlayer extends StatelessWidget {
                   width:MediaQuery.of(context).size.width*.72,
                   height:MediaQuery.of(context).size.width*.72,
                   constraints:const BoxConstraints(maxWidth:320,maxHeight:320),
-                  decoration:BoxDecoration(borderRadius:BorderRadius.circular(28),gradient:const LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Color(0xFF244A31),Color(0xFF13251B),Color(0xFF263A2C)]),boxShadow:[BoxShadow(color:_green.withValues(alpha: .12),blurRadius:40,spreadRadius:2)]),
+                  decoration:BoxDecoration(borderRadius:BorderRadius.circular(_palette.glass ? 34 : 28),gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:_palette.playerGradient),boxShadow:[BoxShadow(color:_green.withValues(alpha: _palette.glass ? .28 : .12),blurRadius:40,spreadRadius:2)]),
                   child: valid
                     ? ValueListenableBuilder<File?>(
                         valueListenable: artworkForTrack(tracks[index].id),
@@ -1073,7 +1178,7 @@ class _FullPlayer extends StatelessWidget {
                   IconButton(iconSize:38,onPressed:()=>player.seekToPrevious(),icon:const Icon(Icons.skip_previous_rounded)),
                   StreamBuilder<PlayerState>(stream:player.playerStateStream,builder:(context,s){
                     final playing=s.data?.playing??false;
-                    return Container(width:70,height:70,decoration:const BoxDecoration(color:_green,shape:BoxShape.circle),child:IconButton(iconSize:39,color:_bg,onPressed:()=>playing?player.pause():player.play(),icon:Icon(playing?Icons.pause_rounded:Icons.play_arrow_rounded)));
+                    return Container(width:70,height:70,decoration:BoxDecoration(color:_green,shape:BoxShape.circle,boxShadow:[BoxShadow(color:_green.withValues(alpha:.28),blurRadius:18,spreadRadius:2)]),child:IconButton(iconSize:39,color:_bg,onPressed:()=>playing?player.pause():player.play(),icon:Icon(playing?Icons.pause_rounded:Icons.play_arrow_rounded)));
                   }),
                   IconButton(iconSize:38,onPressed:()=>player.seekToNext(),icon:const Icon(Icons.skip_next_rounded)),
                   IconButton(iconSize:25,onPressed:()=>player.setLoopMode(player.loopMode==LoopMode.off?LoopMode.all:LoopMode.off),icon:StreamBuilder<LoopMode>(stream:player.loopModeStream,builder:(c,s)=>Icon(Icons.repeat_rounded,color:(s.data??LoopMode.off)==LoopMode.off?_muted:_green))),
