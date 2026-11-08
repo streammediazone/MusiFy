@@ -311,8 +311,8 @@ class _LibrarySkeleton extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Padding(
-        padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Pripravujem tvoju hudbu', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
           SizedBox(height: 5),
@@ -1054,8 +1054,8 @@ class _LibraryPageState extends State<LibraryPage> {
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Padding(
-                padding: EdgeInsets.all(12),
+              return Padding(
+                padding: const EdgeInsets.all(12),
                 child: Text('Načítavam diagnostiku knižnice…', style: TextStyle(color: _muted)),
               );
             }
@@ -1067,8 +1067,8 @@ class _LibraryPageState extends State<LibraryPage> {
             }
             final result = snapshot.data;
             if (result == null) {
-              return const Padding(
-                padding: EdgeInsets.all(12),
+              return Padding(
+                padding: const EdgeInsets.all(12),
                 child: Text('Diagnostické údaje nie sú dostupné.', style: TextStyle(color: _muted)),
               );
             }
