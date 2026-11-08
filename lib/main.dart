@@ -608,12 +608,6 @@ class _LibraryPageState extends State<LibraryPage> {
         try {
           final directory = await _getArtworkCacheDirectory();
           final cacheName = _artworkCacheName(track);
-          final noArtworkMarker = File('${directory.path}/$cacheName.none');
-          if (await noArtworkMarker.exists()) {
-            _artworkChecked.add(track.id);
-            _artworkHasImage.remove(track.id);
-            return;
-          }
           final cached = File('${directory.path}/$cacheName.img');
           if (await cached.exists()) {
             try {
@@ -627,6 +621,12 @@ class _LibraryPageState extends State<LibraryPage> {
             } catch (_) {
               // A damaged artwork cache entry is disposable; fetch it again.
             }
+          }
+          final noArtworkMarker = File('${directory.path}/$cacheName.none');
+          if (await noArtworkMarker.exists()) {
+            _artworkChecked.add(track.id);
+            _artworkHasImage.remove(track.id);
+            return;
           }
 
           final bytes = <int>[];
