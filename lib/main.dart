@@ -252,10 +252,11 @@ class _Page { const _Page(this.items,this.hasMore,this.cursor,this.responseKeys)
 class LibraryResult { const LibraryResult(this.tracks,this.diagnostics); final List<Track> tracks; final List<String> diagnostics; }
 
 class _LibrarySkeleton extends StatelessWidget {
-  const _LibrarySkeleton({required this.completed, required this.total, required this.failures});
+  const _LibrarySkeleton({required this.completed, required this.total, required this.failures, required this.stage});
   final int completed;
   final int total;
   final int failures;
+  final String stage;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -282,7 +283,7 @@ class _LibrarySkeleton extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          Text("Spracované obaly: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}", style: const TextStyle(color: _muted, fontSize: 11)),
+          Text("$stage: $completed z $total${failures > 0 ? ' • neúspešné: $failures' : ''}", style: const TextStyle(color: _muted, fontSize: 11)),
         ]),
       ),
       Padding(
@@ -399,11 +400,19 @@ class _LibraryPageState extends State<LibraryPage> {
       _initialArtworkTotal = total;
       if (mounted) setState(() {});
     });
+    if (!mounted) return;
+    _initialArtworkStage = 'Pripravujem obrázky na zobrazenie';
+    _initialArtworkCompleted = 0;
+    setState(() {});
+    await _precacheInitialArtwork(tracks, onProgress: (done, total) {
+      _initialArtworkCompleted = done;
+      _initialArtworkTotal = total;
+      if (mounted) setState(() {});
+    });
+    if (!mounted) return;
     _loadedTracks = tracks;
-    if (mounted) {
-      _tracksListenable.value = tracks;
-      setState(() {});
-    }
+    _tracksListenable.value = tracks;
+    setState(() {});
   }
 
   Future<void> _handleLibraryProgress(List<Track> tracks) async {
@@ -472,6 +481,47 @@ class _LibraryPageState extends State<LibraryPage> {
         }
       }
     }
+    final workers = tracks.length < 6 ? tracks.length : 6;
+    await Future.wait(List.generate(workers, (_) => worker()));
+  }
+
+  Future<void> _precacheInitialArtwork(
+    List<Track> tracks, {
+    required void Function(int completed, int total) onProgress,
+  }) async {
+    final pixelSize = (49 * MediaQuery.devicePixelRatioOf(context)).round();
+    var next = 0;
+    var completed = 0;
+    Future<void> worker() async {
+      while (true) {
+        final index = next++;
+        if (index >= tracks.length) return;
+        final file = _artworkNotifier(tracks[index].id).value;
+        if (file != null) {
+          var failed = false;
+          try {
+            final provider = ResizeImage.resizeIfNeeded(
+              pixelSize,
+              pixelSize,
+              FileImage(file),
+            );
+            await precacheImage(
+              provider,
+              context,
+              onError: (error, stackTrace) { failed = true; },
+            );
+          } catch (_) {
+            failed = true;
+          }
+          if (failed) _initialArtworkFailures++;
+        }
+        completed++;
+        if (completed % 5 == 0 || completed == tracks.length) {
+          onProgress(completed, tracks.length);
+        }
+      }
+    }
+
     final workers = tracks.length < 6 ? tracks.length : 6;
     await Future.wait(List.generate(workers, (_) => worker()));
   }
@@ -639,7 +689,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _artworkOrFallback(String trackId, int index, {double size = 49, double iconSize = 25}) {
-    return ValueListenableBuilder<Uint8List?>(
+    return ValueListenableBuilder<File?>(
       valueListenable: _artworkNotifier(trackId),
       builder: (context, file, _) {
         final pixelSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
@@ -739,7 +789,7 @@ class _LibraryPageState extends State<LibraryPage> {
       future:_future,
       builder:(context,snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting && _loadedTracks == null) {
-          return _LibrarySkeleton(completed: _initialArtworkCompleted, total: _initialArtworkTotal, failures: _initialArtworkFailures);
+          return _LibrarySkeleton(completed: _initialArtworkCompleted, total: _initialArtworkTotal, failures: _initialArtworkFailures, stage: _initialArtworkStage);
         }
         if (snapshot.hasError && _loadedTracks == null) {
           return Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.cloud_off_rounded,size:60,color:_muted),const SizedBox(height:16),const Text('Knižnicu sa nepodarilo načítať',style:TextStyle(fontSize:19,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${snapshot.error}',textAlign:TextAlign.center,style:const TextStyle(color:_muted)),const SizedBox(height:18),FilledButton.icon(onPressed:_reload,icon:const Icon(Icons.refresh),label:const Text('Skúsiť znova'))])));
